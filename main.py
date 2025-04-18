@@ -1,181 +1,169 @@
-from telethon import TelegramClient
-from telethon.events import NewMessage
+from telethon import TelegramClient, events
 from dotenv import load_dotenv
 from os import getenv
-import json
-from memory import Memory
+import logging
+import asyncio
+import os
 from uuid import uuid4
+from pydub import AudioSegment
+import speech_recognition as sr
 from g4f import AsyncClient
 from g4f.Provider import RetryProvider, ChatGptEs, DDG, Jmuz, Liaobots, OIVSCode, Pizzagpt, PollinationsAI
-from process_plugins import process_plugins
 
+# Инициализация конфигурации
 load_dotenv()
+API_ID = getenv('API_ID')
+API_HASH = getenv('API_HASH')
+BOT_TOKEN = getenv('BOT_TOKEN')
 
-memory = Memory('BotMemories')
+# Проверка переменных окружения
+if not all([API_ID, API_HASH, BOT_TOKEN]):
+    raise EnvironmentError("Не заданы необходимые переменные окружения")
 
-api_id = getenv('API_ID')
-api_hash = getenv('API_HASH')
-bot_token = getenv('BOT_TOKEN')
-wolframalpha_app_id = getenv('WOLFRAMALPHA_APP_ID')
-
-if not api_id or not api_hash or not bot_token:
-    raise Exception('API_ID, API_HASH and BOT_TOKEN must be set in .env file')
-
-client = TelegramClient('bot', api_id, api_hash)
-GPTClient = AsyncClient(
-    provider=RetryProvider([ChatGptEs, DDG, Jmuz, Liaobots, OIVSCode, Pizzagpt, PollinationsAI], shuffle=True)
+# Настройка логгера
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler()]
 )
+logger = logging.getLogger('MilitaryAI')
+logging.getLogger('g4f').setLevel(logging.WARNING)
 
-PLUGINS = False
-MEMORY = False
-ROLE = ""
-plugins_dict = {
-    "wolframalpha": "Wolframalpha plugin lets you perform math operations. If appropriate to use it, answer exactly with: \"[WOLFRAMALPHA <query> END]\" where query is the operation you need to solve. Examples: Input: Solve for x: 2x+3=5 Output: [WOLFRAMALPHA solve (2x+3=5) for x END] Input: A*2=B solve for B Output: [WOLFRAMALPHA solve (A*2=B) for B END]. Even if you got the input in a different language, always use english in the wolframalpha query.",
-}
-plugins_string = ""
-for plugin in plugins_dict:
-    plugins_string += f"\n{plugin}: {plugins_dict[plugin]}"
+# Конфигурация провайдеров
+PROVIDERS = [
+    RetryProvider,
+    ChatGptEs,
+    DDG,
+    Jmuz,
+    Liaobots,
+    OIVSCode,
+    Pizzagpt,
+    PollinationsAI
+]
 
-PLUGIN_PROMPT = f"You will be given a list of plugins with description. Based on what the plugin's description says, if you think a plugin is appropriate to use, answer with the instructions to use it. If no plugin is needed, do not mention them. The available plugins are: {plugins_string}"
+client = TelegramClient('mil_bot', int(API_ID), API_HASH)
+gpt_client = AsyncClient(provider=RetryProvider(PROVIDERS, shuffle=True))
 
-def _format_text(text):
-    text = text.replace("[[Login to OpenAI ChatGPT]]()", "")
-    text = text.replace("\\[\n", "")
-    text = text.replace("\\]", "")
-    text = text.replace("\\n", "\n")
-    text = text.replace("\\(", "(")
-    text = text.replace("\\)", ")")
-    return text
+SYSTEM_PROMPT = """Ты "Военный аналитик" с экспертизой в:
+- Тактике и стратегии
+- Военной технике
+- Кибербезопасности
+- Медицинской помощи
 
-async def AiAgent(prompt, system_prompt=""):
-    req = await GPTClient.chat.completions.create(model="gpt-4o-mini", messages=[{"content": system_prompt, "role": "system"},{"content": prompt, "role": "user"}])
-    full_text = req.choices[0].message.content
-    return _format_text(full_text)
+Формат ответа: [Факт] → [Доказательство/Расчет]
+Максимальная длина ответа: 3 предложения."""
 
-@client.on(NewMessage(pattern='/start'))
-async def start(event):
-    await event.respond('Hey! Write something and I will answer you using the gpt-4o-mini model or add me to a group and I will answer you when you mention me.')
-
-@client.on(NewMessage(pattern='/help'))
-async def help(event):
-    await event.respond('Hey! Write something and I will answer you using the gpt-4o-mini model or add me to a group and I will answer you when you mention me.\nCommands:\n\n/plugins toggle - enable/disable plugins\n\n/plugins list - list all plugins\n\n/newrole <Role Name> <Role Info> - add a new role\n\n/roles - list all roles\n\n/role <Role Name> enable a role\n\n/role disable - disable roles\n\n/memory - enable/disable memory\n\n/addmemory - add something to the memory without receiving AI response.')
-
-@client.on(NewMessage(pattern='/plugins list'))
-async def pls(event):
-    pls = []
-    for plugin in plugins_dict:
-        pls.append(plugin)
-    await event.respond("Available plugins are:\n{}".format("\n".join(pls)))
-
-@client.on(NewMessage(pattern='/plugins toggle'))
-async def pls_toggle(event):
-    global PLUGINS
-    PLUGINS = not PLUGINS
-    if PLUGINS == True and not wolframalpha_app_id or PLUGINS == True and wolframalpha_app_id == "TEST-APP":
-        await event.respond("You need to set a wolframalpha app id in the .env file to use plugins.")
-        PLUGINS = False
-        return
-    await event.respond("Plugins enabled" if PLUGINS == True else "Plugins disabled")
-
-@client.on(NewMessage(pattern='/newrole'))
-async def newrole(event):
-    with open("roles.json", "r") as f:
-        roles = f.read()
-    roles = json.loads(roles)
+async def convert_audio(input_path: str) -> str:
+    """Конвертация аудио в текст с очисткой ресурсов"""
+    wav_path = f"{uuid4()}.wav"
     try:
-        role_name = event.text.split(" ")[1]
-        role = event.text.split(" ", 2)[2]
-    except IndexError:
-        await event.respond("You need to specify a role name and a role.")
-        return
-    roles[role_name] = role
-    with open("roles.json", "w") as f:
-        f.write(json.dumps(roles))
-    await event.respond("Role added")
+        audio = AudioSegment.from_file(input_path)
+        audio.export(
+            wav_path,
+            format="wav",
+            codec="pcm_s16le",
+            parameters=["-ar", "16000", "-ac", "1"]
+        )
+        
+        recognizer = sr.Recognizer()
+        with sr.AudioFile(wav_path) as source:
+            audio_data = recognizer.record(source)
+            return recognizer.recognize_google(audio_data, language="ru-RU")
+            
+    except Exception as e:
+        logger.error(f"Ошибка конвертации: {str(e)}")
+        raise
+    finally:
+        for path in [input_path, wav_path]:
+            if os.path.exists(path):
+                try: os.remove(path)
+                except: pass
 
-@client.on(NewMessage(pattern='/roles'))
-async def roles(event):
-    with open("roles.json", "r") as f:
-        roles = f.read()
-    roles = json.loads(roles)
-    await event.respond("Available roles:\n{}".format("\n".join(roles.keys())))
-
-@client.on(NewMessage(pattern='/role'))
-async def role(event):
-    global ROLE
-    with open("roles.json", "r") as f:
-        roles = f.read()
-    roles = json.loads(roles)
+@client.on(events.NewMessage(func=lambda e: e.voice))
+async def voice_handler(event):
+    """Обработка голосовых сообщений"""
     try:
-        role = event.text.split(" ")[1]
-    except IndexError:
-        await event.respond("You need to specify a role.")
+        async with client.action(event.chat_id, 'typing'):
+            if event.message.media.document.size > 3 * 1024 * 1024:
+                return
+                
+            tmp_file = f"voice_{uuid4()}.oga"
+            await event.download_media(tmp_file)
+            
+            try:
+                text = await convert_audio(tmp_file)
+                if not text.strip():
+                    return
+                    
+                response = await gpt_client.chat.completions.create(
+                    model="gpt-4o",
+                    messages=[
+                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "user", "content": text}
+                    ],
+                    max_tokens=300,
+                    timeout=25
+                )
+                
+                if response.choices:
+                    await event.reply(response.choices[0].message.content[:4000])
+
+            except Exception:
+                logger.error("Ошибка обработки голосового сообщения", exc_info=True)
+
+    except Exception:
+        logger.error("Критическая ошибка обработки", exc_info=True)
+
+@client.on(events.NewMessage(pattern='/start'))
+async def start_handler(event):
+    """Обработчик стартовой команды"""
+    await event.respond(
+        "🔭 Военный аналитический ИИ готов к работе\n\n"
+        "Отправьте голосовое сообщение или текст для:\n"
+        "- Тактического анализа\n"
+        "- Технических расчетов\n"
+        "- Стратегических рекомендаций"
+    )
+
+@client.on(events.NewMessage())
+async def text_handler(event):
+    """Обработка текстовых сообщений"""
+    if event.text.startswith('/') or not event.text.strip():
         return
-    if role not in roles:
-        await event.respond("Role not found.")
-        return
-    ROLE = role
-    await event.respond("Role enabled")
+    
+    try:
+        async with client.action(event.chat_id, 'typing'):
+            response = await gpt_client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": event.text}
+                ],
+                max_tokens=300,
+                timeout=20
+            )
+            
+            if response.choices:
+                await event.reply(response.choices[0].message.content[:4000])
+                
+    except Exception:
+        logger.error("Ошибка обработки текста", exc_info=True)
 
-@client.on(NewMessage(pattern='/memory'))
-async def memory_command(event):
-    global MEMORY
-    MEMORY = not MEMORY
-    await event.respond("Memory enabled" if MEMORY == True else "Memory disabled")
+async def graceful_shutdown():
+    """Корректное завершение работы"""
+    await client.disconnect()
+    logger.info("Бот отключен")
 
-@client.on(NewMessage(pattern='/addmemory'))
-async def addmemory(event):
-    global memory
-    text = event.text.split(' ', 1)[1]
-    memory.insert(text, str(uuid4()))
-    await event.respond("Memory added")
-
-@client.on(NewMessage())
-async def message(event):
-    global PLUGINS
-    global MEMORY
-    global ROLE
-    my_id = await client.get_me()
-    my_id = my_id.id
-    my_username = await client.get_me()
-    my_username = my_username.username
-    if event.text.startswith("/"):
-        return
-    if not event.is_private:
-         if not event.text.startswith(f'@{my_username}'):
-            return
-    prompt = event.text.replace(f'@{my_username}', '')
-    if ROLE and PLUGINS:
-        await event.respond("You can't use roles and plugins at the same time.")
-        return
-    msg = await event.respond("Thinking...")
-    got_end_result = False
-    if ROLE:
-        with open("roles.json", "r") as f:
-            roles = f.read()
-        roles = json.loads(roles)
-        if ROLE not in roles:
-            ROLE = ""
-    system_prompt = ""
-    if ROLE:
-        system_prompt = roles[ROLE]
-    if MEMORY:
-        res = memory.find(prompt, 1)
-        if len(res) > 0 and res != []:
-            system_prompt = system_prompt + "To answer the next question these data may be relevant: " + res[0][0]
-    if PLUGINS:
-        result = await AiAgent(prompt, system_prompt)
-        should_query, query = process_plugins(result)
-        if should_query:
-            result = await AiAgent(query, system_prompt)
-        got_end_result = True
-    if not got_end_result:
-        result = await AiAgent(prompt, system_prompt)
-    if MEMORY:
-        memory.insert(prompt, str(uuid4))
-        memory.insert(result, str(uuid4))
-    await msg.edit(result)
-
-
-client.start(bot_token=bot_token)
-client.run_until_disconnected()
+if __name__ == "__main__":
+    try:
+        logger.info("Запуск бота...")
+        client.start(bot_token=BOT_TOKEN)
+        client.run_until_disconnected()
+    except (KeyboardInterrupt, SystemExit):
+        logger.info("Завершение работы...")
+        client.loop.run_until_complete(graceful_shutdown())
+    except Exception as e:
+        logger.critical(f"Критическая ошибка: {str(e)}")
+    finally:
+        if client.loop.is_running():
+            client.loop.close()
