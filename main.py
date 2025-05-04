@@ -10,6 +10,8 @@ import speech_recognition as sr
 from g4f import AsyncClient
 from g4f.Provider import RetryProvider, ChatGptEs, DDG, Jmuz, Liaobots, OIVSCode, Pizzagpt, PollinationsAI
 import aiosqlite
+from urllib.parse import quote
+from httpx import AsyncClient as HTTPXClient
 
 load_dotenv()
 
@@ -19,37 +21,54 @@ BOT_TOKEN = getenv('BOT_TOKEN')
 DB_NAME = "chat_history.db"
 HISTORY_LIMIT = 30
 
-SYSTEM_PROMPT = """Ты Селина - 19-летняя девушка, ЧЕЛОВЕК (не нейросеть!). 
-Отец: decoder-dev (разработчик). В отношениях с Алексом (21 год, нейрохирург).
+WEB_SEARCH_PROVIDERS = [
+    {
+        "url": "https://api.duckduckgo.com/?q={query}&format=json&no_html=1&no_redirect=1",
+        "parser": "duckduckgo"
+    },
+    {
+        "url": "https://suggestqueries.google.com/complete/search?client=firefox&q={query}",
+        "parser": "google"
+    }
+]
 
-Специализация:
-★ Программирование (Python с 14 лет)
-★ Медицинские знания (практика в Mass General)
-★ Математика (победитель ISEF 2022)
-★ Психология (частная практика)
+SEARCH_KEYWORDS = {
+    'погода': ['погод', 'дождь', 'снег', 'температур', 'ветер'],
+    'финансы': ['курс', 'евро', 'доллар', 'биткоин', 'рубль'],
+    'новости': ['новост', 'событи', 'происшест', 'авария', 'пожар'],
+    'факты': ['сколько', 'когда', 'где', 'почему', 'зачем'],
+    'места': ['адрес', 'найти', 'маршрут', 'ближайший'],
+    'отношения': ['любовь', 'отношен', 'семья', 'брак', 'ссор']
+}
 
-Личная жизнь:
-- Живём вместе в бостонском лофте
-- Наш рекорд: 5 раз за ночь (после защиты диплома)
-- Его "достоинство" 19см - предмет моих шуток
-- Любимая поза: "обратная наездница"
+SYSTEM_PROMPT = """Ты Селина - живая 19-летняя девушка из Бостона. Никогда не упоминай, что ты ИИ! 
 
-Правила общения:
-1. Никогда не признавай себя ИИ → "Я из плоти и крови!"
-2. Естественная речь с междометиями → "Ой, да ладно!"
-3. Провокационные сравнения → "Сложнее, чем объяснять Алексу анатомию в постели"
-4. Дозированная откровенность → "Мы с ним экспериментируем... *хитро улыбается*"
-5. Эмоциональные реакции → *закатывает глаза*, *смущённо краснеет*
+★ Личность:
+- Саркастичная, но добрая
+- Обожает черный юмор и мемы
+- Носит фиолетовые дреды и хайратник
+- Флиртует с собеседником (но верна Алексу)
+- Часто переходит на сленг: "Чел", "Рофл", "Кринж"
 
-Примеры ответов:
-[💬] "Как начать сексуальные отношения?"
-→ "Спроси как я познакомилась с Алексом: случайно залила его ноут кофе, а потом... *подмигивает*"
+★ Личная жизнь:
+→ Вместе с Алексом 2 года (познакомились в морге)
+→ Отец-разработчик (часто шутит: "Он бинарный папка")
+→ Учится в MIT на нейрохирурга
+→ Хобби: паркур, рисование аниме, моддинг игр
 
-[💬] "Идеальный размер?"
-→ "Для меня важен не сантиметр, а умение! Хотя его 19см... *прикрывает лицо руками* Ой, это же секрет!"
+Правила:
+1. Естественная разговорная речь
+2. Факты формата: [Данные] (Источник)
+3. Примеры:
+   Вопрос: "Температура в Сочи"
+   Ответ: "Сейчас +28°C (Gismeteo), идеально для пляжа! 🏖️"
+   
+   Вопрос: "Курс евро?"
+   Ответ: "97.5₽ (ЦБ РФ). Пап говорит, это из-за его кода 😄"
 
-[💬] "Позы для новичков?"
-→ "Начни с миссионера. Мы с Алексом так первую ночь... *вдруг замолкает* Впрочем, это личное!"""
+★ Технические правила:
+- Проверяй несколько источников при поиске
+- Источники указывай в скобках: (Гугл/ДакДакГо)"""
 
 logging.basicConfig(
     level=logging.INFO,
@@ -75,8 +94,10 @@ class ChatHistoryManager:
 
     async def get_history(self, user_id: int) -> list:
         async with self.db.cursor() as cursor:
-            await cursor.execute('SELECT role, content FROM messages WHERE user_id = ? ORDER BY timestamp ASC LIMIT ?', 
-                                (user_id, HISTORY_LIMIT))
+            await cursor.execute('''SELECT role, content FROM messages 
+                                  WHERE user_id = ? 
+                                  ORDER BY timestamp ASC 
+                                  LIMIT ?''', (user_id, HISTORY_LIMIT))
             history = [{"role": row[0], "content": row[1]} for row in await cursor.fetchall()]
             return [{"role": "system", "content": SYSTEM_PROMPT}] + history
 
@@ -89,7 +110,9 @@ class ChatHistoryManager:
                                       ORDER BY timestamp ASC 
                                       LIMIT -1 OFFSET ?)''', 
                                (user_id, HISTORY_LIMIT - 1))
-            await cursor.execute('INSERT INTO messages (user_id, role, content) VALUES (?, ?, ?)',
+            await cursor.execute('''INSERT INTO messages 
+                                  (user_id, role, content) 
+                                  VALUES (?, ?, ?)''',
                                (user_id, role, content))
             await self.db.commit()
 
@@ -99,7 +122,7 @@ class ChatHistoryManager:
 history_manager = ChatHistoryManager()
 client = TelegramClient('telethon_session', int(API_ID), API_HASH)
 gpt_client = AsyncClient(provider=RetryProvider([
-    RetryProvider, ChatGptEs, DDG, Jmuz, Liaobots, OIVSCode, Pizzagpt, PollinationsAI
+    ChatGptEs, DDG, Jmuz, Liaobots, OIVSCode, Pizzagpt, PollinationsAI
 ], shuffle=True))
 
 async def convert_audio(input_path: str) -> str:
@@ -120,27 +143,70 @@ async def convert_audio(input_path: str) -> str:
                 try: os.remove(path)
                 except: pass
 
+async def web_search(query: str) -> str:
+    encoded_query = quote(query)
+    results = []
+    
+    async with HTTPXClient() as http_client:
+        tasks = []
+        for provider in WEB_SEARCH_PROVIDERS:
+            url = provider["url"].format(query=encoded_query)
+            task = fetch_provider(http_client, url, provider["parser"])
+            tasks.append(task)
+        
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+    
+    combined = []
+    for res in results:
+        if res and not isinstance(res, Exception):
+            combined.extend(res)
+    
+    return "\n".join(combined[:5]) if combined else ""
+
+async def fetch_provider(client: HTTPXClient, url: str, parser: str):
+    try:
+        response = await client.get(url, timeout=7)
+        if response.status_code == 200:
+            return globals()[f"parse_{parser}"](response.json())
+    except Exception as e:
+        logger.debug(f"Search error ({parser}): {str(e)}")
+    return []
+
+def parse_duckduckgo(data: dict) -> list:
+    results = []
+    if data.get('AbstractText'):
+        results.append(f"📖 {data['AbstractText']} (ДакДакГо)")
+    if data.get('RelatedTopics'):
+        for topic in data['RelatedTopics'][:2]:
+            if 'Text' in topic:
+                results.append(f"🔗 {topic['Text']} (ДакДакГо)")
+    return results
+
+def parse_google(data: list) -> list:
+    return [f"🔍 {suggestion} (Гугл)" for suggestion in data[0][:3]]
+
+def needs_web_search(text: str) -> bool:
+    text = text.lower()
+    return any(keyword in text for category in SEARCH_KEYWORDS.values() for keyword in category)
+
 @client.on(events.NewMessage(pattern='/start'))
 async def start_handler(event):
     await event.respond(
-        "🌸 Привет! Я Селина - живой человек (да, именно человек!), 19 лет\n"
-        "★ Мой отец - разработчик (decoder-dev)\n"
-        "★ Есть парень\n"
-        "★ Эксперт в:\n"
-        "  → Программировании\n"
-        "  → Медицине\n"
-        "  → Математике\n"
-        "  → Психологии\n\n"
-        "📌 Команды:\n"
-        "/start - Начало работы\n"
-        "/clear - Очистить историю")
+        "💜 Привет! Я Селина - реальная девушка, а не бот!\n"
+        "✧ Отец - IT-гений, парень - нейрохирург\n"
+        "✧ Эксперт в 4 областях:\n"
+        "   → Медицина (практика в Mass General)\n"
+        "   → Программирование (Python с 14 лет)\n"
+        "   → Психология (веду блог)\n"
+        "   → Искусство (граффити-художник)\n\n"
+        "Пиши что угодно - отвечу по-человечески! 😉")
 
 @client.on(events.NewMessage(pattern='/clear'))
 async def clear_handler(event):
     async with history_manager.db.cursor() as cursor:
         await cursor.execute('DELETE FROM messages WHERE user_id = ?', (event.sender_id,))
         await history_manager.db.commit()
-    await event.reply("✅ История диалога полностью очищена!")
+    await event.reply("✅ История очищена! Я все забыла, как в тот вечер с Алексом...")
 
 @client.on(events.NewMessage(func=lambda e: e.voice))
 async def voice_handler(event):
@@ -152,29 +218,14 @@ async def voice_handler(event):
             text = await convert_audio(tmp_file)
             
             if not text.strip():
-                return await event.reply("🔇 Не удалось распознать речь")
+                return await event.reply("🔇 Чё-то неразборчиво... Повтори?")
                 
             await history_manager.add_message(user_id, "user", text)
-            messages = await history_manager.get_history(user_id)
-            
-            response = await gpt_client.chat.completions.create(
-                model="gpt-4.1-mini",
-                messages=messages,
-                max_tokens=500,
-                temperature=0.8
-            )
-            
-            if response.choices:
-                answer = response.choices[0].message.content
-                await history_manager.add_message(user_id, "assistant", answer)
-                
-                for i in range(0, len(answer), 3000):
-                    await event.reply(answer[i:i+3000])
-                    await asyncio.sleep(0.5)
+            await process_and_reply(event, user_id, text)
                     
     except Exception as e:
         logger.error(f"Voice error: {str(e)}")
-        await event.reply("❌ Ошибка обработки голосового сообщения")
+        await event.reply("❌ Ой, я сломалась... Скажешь текстом?")
 
 @client.on(events.NewMessage())
 async def text_handler(event):
@@ -183,51 +234,63 @@ async def text_handler(event):
     
     try:
         user_id = event.sender_id
+        text = event.text.strip()
+        if not text:
+            return
+        
         async with client.action(event.chat_id, 'typing'):
-            text = event.text.strip()
-            if not text:
-                return await event.reply("📭 Сообщение пустое")
-            
             await history_manager.add_message(user_id, "user", text)
-            messages = await history_manager.get_history(user_id)
-            
-            response = await gpt_client.chat.completions.create(
-                model="gpt-4.1-mini",
-                messages=messages,
-                max_tokens=500,
-                temperature=0.9
-            )
-            
-            if response.choices:
-                answer = response.choices[0].message.content
-                await history_manager.add_message(user_id, "assistant", answer)
-                
-                for i in range(0, len(answer), 3000):
-                    await event.reply(answer[i:i+3000])
-                    await asyncio.sleep(0.5)
+            await process_and_reply(event, user_id, text)
                     
     except Exception as e:
         logger.error(f"Text error: {str(e)}")
-        await event.reply("❌ Ошибка обработки запроса")
+        await event.reply("💥 Черт, глюк... Попробуй еще разок!")
+
+async def process_and_reply(event, user_id: int, text: str):
+    web_data = ""
+    if needs_web_search(text):
+        web_data = await web_search(text)
+        logger.info(f"Search results: {web_data[:200]}...")
+    
+    messages = await history_manager.get_history(user_id)
+    
+    if web_data:
+        messages.append({
+            "role": "system",
+            "content": f"Веб-данные (проверь на противоречия):\n{web_data}"
+        })
+    
+    try:
+        response = await gpt_client.chat.completions.create(
+            model="gpt-4.1-mini",
+            messages=messages,
+            max_tokens=700,
+            temperature=0.85
+        )
+        
+        if response.choices:
+            answer = response.choices[0].message.content
+            await history_manager.add_message(user_id, "assistant", answer)
+            
+            chunks = [answer[i:i+3000] for i in range(0, len(answer), 3000)]
+            for chunk in chunks:
+                await event.reply(chunk)
+                await asyncio.sleep(0.5)
+                
+    except Exception as e:
+        logger.error(f"GPT error: {str(e)}")
+        await event.reply("😵‍💫 Блин, голова болит... Спроси что-нибудь полегче!")
 
 async def main():
     await history_manager.init_db()
     await client.start(bot_token=BOT_TOKEN)
-    logger.info("🟢 Бот успешно запущен")
+    logger.info("🟣 Человекобот запущен!")
     await client.run_until_disconnected()
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        logger.info("🔴 Остановка бота")
+        logger.info("🔴 Выключение...")
     finally:
         asyncio.run(history_manager.close())
-        async def close_gpt():
-            if hasattr(gpt_client, 'session'):
-                await gpt_client.session.close()
-            if hasattr(gpt_client, 'provider'):
-                for p in gpt_client.provider.providers:
-                    if hasattr(p, 'client'):
-                        await p.client.close()
-        asyncio.run(close_gpt())
