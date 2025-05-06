@@ -1,4 +1,4 @@
-from telethon import TelegramClient, events
+from telethon import TelegramClient, events, types
 from dotenv import load_dotenv
 from os import getenv
 import logging
@@ -12,7 +12,16 @@ from g4f.Provider import RetryProvider, ChatGptEs, DDG, Jmuz, Liaobots, OIVSCode
 import aiosqlite
 from urllib.parse import quote
 from httpx import AsyncClient as HTTPXClient
+import json
 
+# Для обработки DOCX файлов
+try:
+    import docx
+    DOCX_SUPPORT = True
+except ImportError:
+    DOCX_SUPPORT = False
+
+# Загрузка переменных окружения
 load_dotenv()
 
 API_ID = getenv('API_ID')
@@ -21,6 +30,7 @@ BOT_TOKEN = getenv('BOT_TOKEN')
 DB_NAME = "chat_history.db"
 HISTORY_LIMIT = 30
 
+# Провайдеры поиска
 WEB_SEARCH_PROVIDERS = [
     {
         "url": "https://api.duckduckgo.com/?q={query}&format=json&no_html=1&no_redirect=1",
@@ -32,6 +42,7 @@ WEB_SEARCH_PROVIDERS = [
     }
 ]
 
+# Ключевые слова для поиска
 SEARCH_KEYWORDS = {
     'погода': ['погод', 'дождь', 'снег', 'температур', 'ветер'],
     'финансы': ['курс', 'евро', 'доллар', 'биткоин', 'рубль'],
@@ -41,6 +52,7 @@ SEARCH_KEYWORDS = {
     'отношения': ['любовь', 'отношен', 'семья', 'брак', 'ссор']
 }
 
+# Промпт для GPT
 SYSTEM_PROMPT = """Ты Селина - живая 19-летняя девушка из Бостона. Никогда не упоминай, что ты ИИ! 
 
 ★ Личность:
@@ -62,7 +74,6 @@ SYSTEM_PROMPT = """Ты Селина - живая 19-летняя девушка
 3. Примеры:
    Вопрос: "Температура в Сочи"
    Ответ: "Сейчас +28°C (Gismeteo), идеально для пляжа! 🏖️"
-   
    Вопрос: "Курс евро?"
    Ответ: "97.5₽ (ЦБ РФ). Пап говорит, это из-за его кода 😄"
 
@@ -70,6 +81,7 @@ SYSTEM_PROMPT = """Ты Селина - живая 19-летняя девушка
 - Проверяй несколько источников при поиске
 - Источники указывай в скобках: (Гугл/ДакДакГо)"""
 
+# Настройка логирования
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -109,7 +121,7 @@ class ChatHistoryManager:
                                       WHERE user_id = ? 
                                       ORDER BY timestamp ASC 
                                       LIMIT -1 OFFSET ?)''', 
-                               (user_id, HISTORY_LIMIT - 1))
+                                (user_id, HISTORY_LIMIT - 1))
             await cursor.execute('''INSERT INTO messages 
                                   (user_id, role, content) 
                                   VALUES (?, ?, ?)''',
@@ -119,12 +131,83 @@ class ChatHistoryManager:
     async def close(self):
         await self.db.close()
 
+class FactChecker:
+    def __init__(self):
+        self.cache = {}  # Кэш для проверенных фактов
+    
+    async def check_facts(self, text: str, search_results: str) -> dict:
+        """
+        Проверяет факты в тексте, используя результаты поиска.
+        """
+        # Проверка кэша
+        cache_key = text + search_results
+        if cache_key in self.cache:
+            return self.cache[cache_key]
+        
+        # Используем GPT для проверки фактов
+        try:
+            fact_check_prompt = f"""
+            Проанализируй следующую информацию и оцени достоверность фактов:
+            
+            Текст для проверки: {text}
+            
+            Данные из поиска:
+            {search_results}
+            
+            Для каждого факта укажи:
+            1. Сам факт
+            2. Соответствие данным (подтверждается/противоречит/недостаточно данных)
+            3. Источник, подтверждающий или опровергающий факт
+            
+            Верни ответ в JSON:
+            {{
+                "facts": [
+                    {{
+                        "fact": "текст факта",
+                        "status": "confirmed/contradicted/insufficient",
+                        "confidence": 0.XX,
+                        "source": "источник"
+                    }}
+                ],
+                "overall_reliability": 0.XX
+            }}
+            """
+            
+            # Используем тот же клиент, что и для основных ответов
+            response = await gpt_client.chat.completions.create(
+                model="gpt-4.1-mini",
+                messages=[{"role": "user", "content": fact_check_prompt}],
+                max_tokens=500,
+                temperature=0.3
+            )
+            
+            if response.choices:
+                result = response.choices[0].message.content
+                try:
+                    fact_check_result = json.loads(result)
+                    self.cache[cache_key] = fact_check_result
+                    return fact_check_result
+                except Exception as e:
+                    logger.error(f"Failed to parse fact check JSON: {str(e)}")
+            
+            return {"facts": [], "overall_reliability": 0.5}
+            
+        except Exception as e:
+            logger.error(f"Fact checking error: {str(e)}")
+            return {
+                "facts": [],
+                "overall_reliability": 0.5
+            }
+
+# Инициализация менеджера истории и клиентов
 history_manager = ChatHistoryManager()
+fact_checker = FactChecker()
 client = TelegramClient('telethon_session', int(API_ID), API_HASH)
 gpt_client = AsyncClient(provider=RetryProvider([
     ChatGptEs, DDG, Jmuz, Liaobots, OIVSCode, Pizzagpt, PollinationsAI
 ], shuffle=True))
 
+# Функция для конвертации аудио в текст
 async def convert_audio(input_path: str) -> str:
     try:
         audio = AudioSegment.from_file(input_path)
@@ -143,6 +226,34 @@ async def convert_audio(input_path: str) -> str:
                 try: os.remove(path)
                 except: pass
 
+# Функция для извлечения текста из документов
+async def extract_text_from_document(file_path: str, mime_type: str = None) -> str:
+    try:
+        # Если это обычный текстовый файл
+        if not mime_type or mime_type.startswith('text/') or mime_type.endswith('/plain'):
+            try:
+                with open(file_path, 'r', encoding='utf-8') as file:
+                    return file.read()
+            except UnicodeDecodeError:
+                try:
+                    with open(file_path, 'r', encoding='cp1251') as file:
+                        return file.read()
+                except:
+                    return "Не удалось прочитать текстовый файл из-за неизвестной кодировки."
+        
+        # Если это DOCX документ и библиотека docx установлена
+        elif mime_type == 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' and DOCX_SUPPORT:
+            doc = docx.Document(file_path)
+            return "\n".join([para.text for para in doc.paragraphs])
+        
+        else:
+            return f"Не могу прочитать файл с типом {mime_type}. Поддерживаются только текстовые файлы (.txt) и Word документы (.docx)."
+    
+    except Exception as e:
+        logger.error(f"Document extraction error: {str(e)}")
+        return f"Ошибка при чтении файла: {str(e)}"
+
+# Функции для веб-поиска
 async def web_search(query: str) -> str:
     encoded_query = quote(query)
     results = []
@@ -167,7 +278,9 @@ async def fetch_provider(client: HTTPXClient, url: str, parser: str):
     try:
         response = await client.get(url, timeout=7)
         if response.status_code == 200:
-            return globals()[f"parse_{parser}"](response.json())
+            parser_func = globals().get(f"parse_{parser}")
+            if parser_func:
+                return parser_func(response.json())
     except Exception as e:
         logger.debug(f"Search error ({parser}): {str(e)}")
     return []
@@ -189,6 +302,7 @@ def needs_web_search(text: str) -> bool:
     text = text.lower()
     return any(keyword in text for category in SEARCH_KEYWORDS.values() for keyword in category)
 
+# Обработчики команд
 @client.on(events.NewMessage(pattern='/start'))
 async def start_handler(event):
     await event.respond(
@@ -208,44 +322,94 @@ async def clear_handler(event):
         await history_manager.db.commit()
     await event.reply("✅ История очищена! Я все забыла, как в тот вечер с Алексом...")
 
-@client.on(events.NewMessage(func=lambda e: e.voice))
-async def voice_handler(event):
-    try:
-        user_id = event.sender_id
-        async with client.action(event.chat_id, 'typing'):
-            tmp_file = f"voice_{uuid4()}.oga"
-            await event.download_media(tmp_file)
-            text = await convert_audio(tmp_file)
-            
-            if not text.strip():
-                return await event.reply("🔇 Чё-то неразборчиво... Повтори?")
-                
-            await history_manager.add_message(user_id, "user", text)
-            await process_and_reply(event, user_id, text)
-                    
-    except Exception as e:
-        logger.error(f"Voice error: {str(e)}")
-        await event.reply("❌ Ой, я сломалась... Скажешь текстом?")
-
-@client.on(events.NewMessage())
-async def text_handler(event):
-    if event.voice or (event.text and event.text.startswith('/')):
+# Универсальный обработчик всех сообщений
+@client.on(events.NewMessage)
+async def universal_message_handler(event):
+    # Игнорируем собственные сообщения, команды
+    if event.out or (event.text and event.text.startswith('/')):
         return
     
+    user_id = event.sender_id
+    logger.info(f"Получено сообщение от {user_id}")
+    
     try:
-        user_id = event.sender_id
-        text = event.text.strip()
-        if not text:
-            return
+        # 1. Обработка голосовых сообщений
+        if hasattr(event, 'media') and hasattr(event.media, 'document') and event.media.document.mime_type.startswith('audio/'):
+            logger.info(f"Обрабатываю голосовое сообщение от {user_id}")
+            
+            async with client.action(event.chat_id, 'typing'):
+                tmp_file = f"voice_{uuid4()}.oga"
+                await event.download_media(tmp_file)
+                text = await convert_audio(tmp_file)
+                
+                if not text.strip():
+                    return await event.reply("🔇 Чё-то неразборчиво... Повтори?")
+                
+                await history_manager.add_message(user_id, "user", text)
+                await process_and_reply(event, user_id, text)
         
-        async with client.action(event.chat_id, 'typing'):
-            await history_manager.add_message(user_id, "user", text)
-            await process_and_reply(event, user_id, text)
-                    
+        # 2. Обработка документов
+        elif hasattr(event, 'media') and hasattr(event.media, 'document'):
+            mime_type = event.media.document.mime_type
+            logger.info(f"Обрабатываю документ от {user_id}, тип: {mime_type}")
+            
+            # Проверяем тип документа
+            if mime_type.startswith('text/') or mime_type.endswith('/plain') or mime_type == 'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
+                # Получаем имя файла
+                file_name = "document"
+                for attr in event.media.document.attributes:
+                    if hasattr(attr, 'file_name'):
+                        file_name = attr.file_name
+                        break
+                
+                ext = os.path.splitext(file_name)[1]
+                if not ext:
+                    ext = '.txt' if mime_type.startswith('text/') else '.docx'
+                
+                # Скачиваем файл
+                tmp_file = f"doc_{uuid4()}{ext}"
+                await event.download_media(tmp_file)
+                
+                # Извлекаем текст из файла
+                file_content = await extract_text_from_document(tmp_file, mime_type)
+                
+                # Ограничиваем размер текста
+                if len(file_content) > 10000:
+                    file_content = file_content[:10000] + "...\n[файл слишком большой, читаю только начало]"
+                
+                if not file_content.strip():
+                    return await event.reply("🤔 Файл пустой или не содержит текста")
+                
+                await event.reply(f"📄 Получила твой файл {file_name}! Сейчас прочитаю...")
+                
+                # Добавляем содержимое файла в историю и обрабатываем
+                await history_manager.add_message(user_id, "user", f"Содержимое файла {file_name}:\n{file_content}")
+                await process_and_reply(event, user_id, f"Прочитай этот файл и ответь на его содержимое: {file_content}")
+                
+                # Удаляем временный файл
+                if os.path.exists(tmp_file):
+                    try: os.remove(tmp_file)
+                    except: pass
+            else:
+                await event.reply("🤨 Я пока умею читать только текстовые файлы и Word документы (.docx)")
+        
+        # 3. Обработка текстовых сообщений
+        elif event.text:
+            text = event.text.strip()
+            if not text:
+                return
+            
+            logger.info(f"Обрабатываю текстовое сообщение от {user_id}: {text[:50]}...")
+            
+            async with client.action(event.chat_id, 'typing'):
+                await history_manager.add_message(user_id, "user", text)
+                await process_and_reply(event, user_id, text)
+    
     except Exception as e:
-        logger.error(f"Text error: {str(e)}")
-        await event.reply("💥 Черт, глюк... Попробуй еще разок!")
+        logger.error(f"Ошибка обработки сообщения: {str(e)}")
+        await event.reply("💥 Что-то пошло не так... Попробуй еще раз!")
 
+# Функция обработки и формирования ответа
 async def process_and_reply(event, user_id: int, text: str):
     web_data = ""
     if needs_web_search(text):
@@ -257,7 +421,7 @@ async def process_and_reply(event, user_id: int, text: str):
     if web_data:
         messages.append({
             "role": "system",
-            "content": f"Веб-данные (проверь на противоречия):\n{web_data}"
+            "content": f"Веб-данные (используй для точных фактов в формате [факт] (источник)):\n{web_data}"
         })
     
     try:
@@ -272,6 +436,23 @@ async def process_and_reply(event, user_id: int, text: str):
             answer = response.choices[0].message.content
             await history_manager.add_message(user_id, "assistant", answer)
             
+            # Проверка фактов при наличии веб-данных
+            if web_data:
+                fact_check_result = await fact_checker.check_facts(answer, web_data)
+                reliability = fact_check_result.get("overall_reliability", 0.5)
+                
+                if reliability < 0.7:
+                    facts = fact_check_result.get("facts", [])
+                    for fact in facts:
+                        if fact.get("status") == "contradicted" and fact.get("confidence", 0) > 0.6:
+                            fact_text = fact.get("fact", "")
+                            source = fact.get("source", "источников")
+                            
+                            if fact_text in answer:
+                                note = f" [По данным {source}, этот факт может быть неточным]"
+                                answer = answer.replace(fact_text, fact_text + note)
+            
+            # Отправляем ответ
             chunks = [answer[i:i+3000] for i in range(0, len(answer), 3000)]
             for chunk in chunks:
                 await event.reply(chunk)
@@ -281,12 +462,14 @@ async def process_and_reply(event, user_id: int, text: str):
         logger.error(f"GPT error: {str(e)}")
         await event.reply("😵‍💫 Блин, голова болит... Спроси что-нибудь полегче!")
 
+# Главная функция запуска бота
 async def main():
     await history_manager.init_db()
     await client.start(bot_token=BOT_TOKEN)
     logger.info("🟣 Человекобот запущен!")
     await client.run_until_disconnected()
 
+# Запуск бота
 if __name__ == "__main__":
     try:
         asyncio.run(main())
