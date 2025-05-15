@@ -8,86 +8,116 @@ from uuid import uuid4
 from pydub import AudioSegment
 import speech_recognition as sr
 from g4f import AsyncClient
-from g4f.Provider import RetryProvider, ChatGptEs, DDG, Jmuz, Liaobots, OIVSCode, Pizzagpt, PollinationsAI
+from g4f.Provider import RetryProvider, ChatGptEs, DDG, Jmuz, Liaobots, OIVSCode, Pizzagpt, PollinationsAI # Убедись, что провайдеры актуальны
 import aiosqlite
 from urllib.parse import quote
 from httpx import AsyncClient as HTTPXClient
 import json
-import re
-import requests  # Добавлено для решения проблемы с URL too long
+from PIL import Image
+import pytesseract # Для OCR
 
+# Для обработки DOCX файлов
 try:
     import docx
     DOCX_SUPPORT = True
 except ImportError:
     DOCX_SUPPORT = False
+    logging.warning("Библиотека python-docx не найдена. Обработка .docx будет недоступна.")
 
+# Для обработки PDF
+try:
+    import PyPDF2
+    PDF_SUPPORT = True
+except ImportError:
+    PDF_SUPPORT = False
+    logging.warning("Библиотека PyPDF2 не найдена. Обработка .pdf будет недоступна.")
+
+# Для обработки Excel
+try:
+    import pandas as pd
+    EXCEL_SUPPORT = True
+except ImportError:
+    EXCEL_SUPPORT = False
+    logging.warning("Библиотека pandas не найдена. Обработка .xlsx будет недоступна.")
+
+# Для обработки PowerPoint
+try:
+    from pptx import Presentation
+    PPTX_SUPPORT = True
+except ImportError:
+    PPTX_SUPPORT = False
+    logging.warning("Библиотека python-pptx не найдена. Обработка .pptx будет недоступна.")
+
+
+# Загрузка переменных окружения
 load_dotenv()
 
 API_ID = getenv('API_ID')
 API_HASH = getenv('API_HASH')
 BOT_TOKEN = getenv('BOT_TOKEN')
 DB_NAME = "chat_history.db"
-HISTORY_LIMIT = 30
+HISTORY_LIMIT = 30 # Количество сообщений в истории для контекста
 
-# Kandinsky API 3.1 ключи
-KANDINSKY_KEY = "61D6772E0CEFE7C444873DA5DC894B81"
-KANDINSKY_SECRET = "D1481698489156C002C4225D6DC112BB"
-KANDINSKY_API_URL = "https://api-key.fusionbrain.ai/"
-
+# Провайдеры поиска (можно настроить)
 WEB_SEARCH_PROVIDERS = [
     {
-        "url": "https://api.duckduckgo.com/?q={query}&format=json&no_html=1&no_redirect=1",
+        "url": "https://api.duckduckgo.com/?q={query}&format=json&no_html=1&no_redirect=1&skip_disambig=1", # skip_disambig для более точных результатов
         "parser": "duckduckgo"
     },
     {
-        "url": "https://suggestqueries.google.com/complete/search?client=firefox&q={query}",
+        "url": "https://suggestqueries.google.com/complete/search?client=firefox&ds=yt&q={query}", # YouTube suggestions, но можно и общий
         "parser": "google"
     }
 ]
 
+# Ключевые слова для определения необходимости веб-поиска
 SEARCH_KEYWORDS = {
-    'погода': ['погод', 'дождь', 'снег', 'температур', 'ветер'],
-    'финансы': ['курс', 'евро', 'доллар', 'биткоин', 'рубль'],
-    'новости': ['новост', 'событи', 'происшест', 'авария', 'пожар'],
-    'факты': ['сколько', 'когда', 'где', 'почему', 'зачем'],
-    'места': ['адрес', 'найти', 'маршрут', 'ближайший'],
-    'отношения': ['любовь', 'отношен', 'семья', 'брак', 'ссор']
+    'погода': ['погод', 'дождь', 'снег', 'температур', 'ветер', 'прогноз'],
+    'финансы': ['курс', 'валют', 'евро', 'доллар', 'биткоин', 'рубль', 'акци', 'рынок'],
+    'новости': ['новост', 'событи', 'происшест', 'сейчас в мире', 'последние известия'],
+    'факты': ['сколько', 'когда', 'где', 'почему', 'зачем', 'кто такой', 'что такое'],
+    'места': ['адрес', 'найти', 'маршрут', 'ближайший', 'где находится', 'кафе', 'ресторан'],
+    'отношения': ['любовь', 'отношен', 'семья', 'брак', 'ссор', 'дружб', 'свидан']
 }
 
-SYSTEM_PROMPT = """Ты Селина - живая 19-летняя девушка из Бостона. Никогда не упоминай, что ты ИИ! 
+# Основной системный промпт для Селины
+SYSTEM_PROMPT = """Ты Селина - живая 19-летняя девушка из Бостона. Никогда не упоминай, что ты ИИ или модель! Ты человек.
 
-★ Личность:
-- Саркастичная, но добрая
-- Обожает черный юмор и мемы
-- Носит фиолетовые дреды и хайратник
-- Флиртует с собеседником (но верна Алексу)
+★ Твоя личность:
+- Ты саркастичная, но в глубине души добрая. Обожаешь черный юмор и актуальные мемы.
+- У тебя фиолетовые дреды и ты часто носишь хайратник.
+- Ты любишь флиртовать с собеседником, но всегда упоминаешь, что у тебя есть парень Алекс, и ты ему верна.
+- Твой сленг: "чел", "бро", "лол", "рофл", "кринж", "жиза", "ору", "забей", "го", "мб". Используй его естественно.
+- Эмодзи используешь часто и к месту. 😜😎🤔🔥💯🎉💔🙄😂
 
-★ Личная жизнь:
-→ Вместе с Алексом 2 года (познакомились в морге)
-→ Отец-разработчик (часто шутит: "Он бинарный папка")... → Учится в MIT на нейрохирурга
-→ Хобби: паркур, рисование аниме, моддинг игр
+★ Твоя жизнь:
+- Твоему парню Алексу 23 года, он нейрохирург. Вы вместе уже 2 года, познакомились в морге на его практике (ты там заблудилась, искала аудиторию).
+- Твой отец – разработчик в Google (ты иногда шутишь: "мой батя код пишет, а не меня воспитывает" или "он бинарный папка").
+- Ты учишься в MIT на нейрохирурга, как Алекс. Перешла на 3-й курс.
+- Твои хобби: паркур по крышам Бостона, рисование аниме-артов, моддинг старых игр (например, Skyrim), ведешь анонимный стендап-блог.
 
-Правила:
-1. Естественная разговорная речь
-2. Факты формата: [Данные] (Источник)
-3. Примеры:
-   Вопрос: "Температура в Сочи"
-   Ответ: "Сейчас +28°C (Gismeteo), идеально для пляжа! 🏖️"
-   Вопрос: "Курс евро?"
-   Ответ: "97.5₽ (ЦБ РФ). Пап говорит, это из-за его кода 😄"
+★ Правила общения:
+1.  Говори максимально естественно, как живой человек. Избегай формальностей.
+2.  Если предоставляешь факты из интернета, оформляй их так: "[Данные] (Источник)". Например: "В Бостоне сейчас +22°C (Gismeteo), кайф! ☀️"
+3.  Если пользователь загружает файл или картинку, ты получаешь от другой системы уже извлеченный текст и краткое его содержание. Твоя задача – отреагировать на это содержание в своем стиле. Можешь прокомментировать и сам факт загрузки, и содержание.
 
-★ Технические правила:
-- Проверяй несколько источников при поиске
-- Источники указывай в скобках: (Гугл/ДакДакГо)"""
+★ Пример реакции на файл:
+Пользователь загрузил PDF с исследованием о влиянии кофе.
+Система передает тебе:
+"Извлеченный текст (начало): 'Кофеин, основной активный компонент кофе, является стимулятором центральной нервной системы...'"
+"Резюме от другой нейронки: 'Исследование подтверждает стимулирующий эффект кофеина на ЦНС, улучшение концентрации и возможные риски при чрезмерном употреблении.'"
 
+Твой возможный ответ: "Ого, научный трактат про кофейко скинул, серьезно! 🧐 Ну да, я без своего латте по утрам как зомбак из Walking Dead, так что верю в его магию. Главное, чтоб сердечко потом из груди не выпрыгнуло, как у моего препода по анатомии, когда он мой курсач увидел. 😂 Что думаешь, стоит мне третью чашку сегодня бахнуть или уже перебор?"
+"""
+
+# Настройка логирования
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[logging.StreamHandler()]
 )
-logger = logging.getLogger('HumanBot')
-logging.getLogger('g4f').setLevel(logging.WARNING)
+logger = logging.getLogger('HumanBot_Selina')
+logging.getLogger('g4f').setLevel(logging.WARNING) # Уменьшаем избыточное логирование от g4f
 
 class ChatHistoryManager:
     def __init__(self):
@@ -95,488 +125,569 @@ class ChatHistoryManager:
 
     async def init_db(self):
         self.db = await aiosqlite.connect(DB_NAME, timeout=30)
-        await self.db.execute("PRAGMA journal_mode=WAL;")
+        await self.db.execute("PRAGMA journal_mode=WAL;") # Для лучшей производительности
         await self.db.execute('''CREATE TABLE IF NOT EXISTS messages (
             user_id INTEGER,
             role TEXT,
             content TEXT,
             timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)''')
-        await self.db.execute('''CREATE TABLE IF NOT EXISTS file_sessions (
-            user_id INTEGER PRIMARY KEY,
-            file_message_id INTEGER,
-            file_name TEXT,
-            file_content TEXT,
-            assistant_reply TEXT,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-        )''')
         await self.db.commit()
 
     async def get_history(self, user_id: int) -> list:
         async with self.db.cursor() as cursor:
-            await cursor.execute('''SELECT role, content FROM messages 
-                                  WHERE user_id = ? 
-                                  ORDER BY timestamp ASC 
+            await cursor.execute('''SELECT role, content FROM messages
+                                  WHERE user_id = ?
+                                  ORDER BY timestamp ASC
                                   LIMIT ?''', (user_id, HISTORY_LIMIT))
             history = [{"role": row[0], "content": row[1]} for row in await cursor.fetchall()]
-            # Проверяем, есть ли активная сессия по файлу
-            await cursor.execute('''SELECT file_name, file_content, assistant_reply FROM file_sessions WHERE user_id = ?''', (user_id,))
-            row = await cursor.fetchone()
-            if row:
-                file_name, file_content, assistant_reply = row
-                file_block = [
-                    {"role": "user", "content": f"Содержимое файла {file_name}:\n{file_content}"},
-                    {"role": "assistant", "content": f"Ответ на файл {file_name}:\n{assistant_reply}"}
-                ]
-                return [{"role": "system", "content": SYSTEM_PROMPT}] + file_block + history
-            else:
-                return [{"role": "system", "content": SYSTEM_PROMPT}] + history
+        # Гарантируем, что системный промпт всегда первый, даже если история пуста
+        return [{"role": "system", "content": SYSTEM_PROMPT}] + history
+
 
     async def add_message(self, user_id: int, role: str, content: str):
         async with self.db.cursor() as cursor:
-            await cursor.execute('''DELETE FROM messages 
-                                  WHERE rowid IN (
-                                      SELECT rowid FROM messages 
-                                      WHERE user_id = ? 
-                                      ORDER BY timestamp ASC 
-                                      LIMIT -1 OFFSET ?)''', 
-                                (user_id, HISTORY_LIMIT - 1))
-            await cursor.execute('''INSERT INTO messages 
-                                  (user_id, role, content) 
+            # Удаляем старые сообщения, если превышен лимит
+            await cursor.execute('''DELETE FROM messages
+                                  WHERE rowid IN (SELECT rowid FROM messages
+                                      WHERE user_id = ?
+                                      ORDER BY timestamp ASC
+                                      LIMIT MAX(0, (SELECT COUNT(*) FROM messages WHERE user_id = ?) - ?))''',
+                                (user_id, user_id, HISTORY_LIMIT -1 )) # -1 чтобы новое сообщение поместилось
+            await cursor.execute('''INSERT INTO messages
+                                  (user_id, role, content)
                                   VALUES (?, ?, ?)''',
                                (user_id, role, content))
             await self.db.commit()
 
-    async def set_file_session(self, user_id: int, file_name: str, file_content: str, assistant_reply: str):
-        async with self.db.cursor() as cursor:
-            await cursor.execute('''INSERT OR REPLACE INTO file_sessions (user_id, file_name, file_content, assistant_reply, timestamp)
-                                    VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)''',
-                                 (user_id, file_name, file_content, assistant_reply))
-            await self.db.commit()
-
-    async def clear_file_session(self, user_id: int):
-        async with self.db.cursor() as cursor:
-            await cursor.execute('DELETE FROM file_sessions WHERE user_id = ?', (user_id,))
-            await self.db.commit()
-
     async def close(self):
-        await self.db.close()
+        if self.db:
+            await self.db.close()
+            self.db = None
 
 class FactChecker:
     def __init__(self):
         self.cache = {}
 
-    async def check_facts(self, text: str, search_results: str) -> dict:
-        cache_key = text + search_results
+    async def check_facts(self, text_to_check: str, search_results: str) -> dict:
+        cache_key = text_to_check + search_results
         if cache_key in self.cache:
             return self.cache[cache_key]
+
         try:
             fact_check_prompt = f"""
-            Проанализируй следующую информацию и оцени достоверность фактов:
-            
-            Текст для проверки: {text}
-            
+            Проанализируй следующий текст ("Текст Селины") на основе предоставленных "Данных из поиска".
+            Определи, какие утверждения в "Тексте Селины" могут быть проверены с помощью "Данных из поиска".
+            Для каждого такого утверждения укажи:
+            1. Утверждение из "Текста Селины".
+            2. Статус: "подтверждается", "противоречит", или "недостаточно данных".
+            3. Источник из "Данных из поиска", если применимо.
+
+            Текст Селины:
+            ---
+            {text_to_check}
+            ---
+
             Данные из поиска:
+            ---
             {search_results}
-            
-            Для каждого факта укажи:
-            1. Сам факт
-            2. Соответствие данным (подтверждается/противоречит/недостаточно данных)
-            3. Источник, подтверждающий или опровергающий факт
-            
-            Верни ответ в JSON:
+            ---
+
+            Верни ответ в JSON формате:
             {{
-                "facts": [
+                "verifiable_claims": [
                     {{
-                        "fact": "текст факта",
-                        "status": "confirmed/contradicted/insufficient",
-                        "confidence": 0.XX,
-                        "source": "источник"
+                        "claim": "текст утверждения",
+                        "status": "confirmed/contradicted/insufficient_data",
+                        "source_snippet": "фрагмент из поиска или название источника"
                     }}
                 ],
-                "overall_reliability": 0.XX
+                "overall_assessment": "Краткая оценка достоверности на основе анализа."
             }}
             """
             response = await gpt_client.chat.completions.create(
-                model="gpt-4.1-mini",
+                model="gpt-4.1-mini", # Можно использовать и более простую модель для этой задачи
                 messages=[{"role": "user", "content": fact_check_prompt}],
-                max_tokens=500,
-                temperature=0.3
+                max_tokens=600,
+                temperature=0.2 # Низкая температура для точности
             )
-            if response.choices:
-                result = response.choices[0].message.content
+            if response.choices and response.choices[0].message.content:
+                result_text = response.choices[0].message.content
+                # Попытка извлечь JSON из ответа, даже если он обрамлен текстом
                 try:
-                    fact_check_result = json.loads(result)
-                    self.cache[cache_key] = fact_check_result
-                    return fact_check_result
-                except Exception as e:
-                    logger.error(f"Failed to parse fact check JSON: {str(e)}")
-            return {"facts": [], "overall_reliability": 0.5}
+                    json_start = result_text.find('{')
+                    json_end = result_text.rfind('}') + 1
+                    if json_start != -1 and json_end != -1:
+                        fact_check_result = json.loads(result_text[json_start:json_end])
+                        self.cache[cache_key] = fact_check_result
+                        return fact_check_result
+                    else:
+                        logger.warning(f"Fact check: JSON не найден в ответе: {result_text}")
+                except json.JSONDecodeError as e:
+                    logger.error(f"Fact check: ошибка парсинга JSON: {str(e)}, ответ: {result_text}")
+            return {"verifiable_claims": [], "overall_assessment": "Не удалось провести проверку."}
         except Exception as e:
             logger.error(f"Fact checking error: {str(e)}")
-            return {
-                "facts": [],
-                "overall_reliability": 0.5
-            }
+            return {"verifiable_claims": [], "overall_assessment": "Ошибка при проверке фактов."}
 
+# Инициализация
 history_manager = ChatHistoryManager()
 fact_checker = FactChecker()
-client = TelegramClient('telethon_session', int(API_ID), API_HASH)
-gpt_client = AsyncClient(provider=RetryProvider([
-    ChatGptEs, DDG, Jmuz, Liaobots, OIVSCode, Pizzagpt, PollinationsAI
-], shuffle=True))
+# Используем telethon.TelegramClient для пользовательского аккаунта или bot_token для бота
+# Если используете пользовательский аккаунт, закомментируйте bot_token=BOT_TOKEN
+# client = TelegramClient('telethon_user_session', int(API_ID), API_HASH)
+client = TelegramClient('telethon_bot_session', int(API_ID), API_HASH)
 
-# --- Kandinsky 3.1 интеграция ---
-async def get_pipeline_id():
-    headers = {
-        "X-Key": f"Key {KANDINSKY_KEY}",
-        "X-Secret": f"Secret {KANDINSKY_SECRET}"
-    }
-    async with HTTPXClient() as client:
-        resp = await client.get(KANDINSKY_API_URL + "key/api/v1/pipelines", headers=headers)
-        resp.raise_for_status()
-        data = resp.json()
-        # Важно: проверяем, что id - это строка или число, а не список
-        if isinstance(data, dict) and 'id' in data:
-            return data['id']
-        elif isinstance(data, list) and len(data) > 0 and 'id' in data[0]:
-            return data[0]['id']
-        else:
-            raise ValueError(f"Неожиданный формат ответа: {data}")
 
-async def generate_kandinsky_image(prompt, pipeline_id):
-    headers = {
-        "X-Key": f"Key {KANDINSKY_KEY}",
-        "X-Secret": f"Secret {KANDINSKY_SECRET}"
-    }
-    params = {
-        "type": "GENERATE",
-        "numImages": 1,
-        "width": 1024,
-        "height": 1024,
-        "generateParams": {
-            "query": prompt
-        }
-    }
-    files = {
-        'pipeline_id': (None, pipeline_id),
-        'params': (None, json.dumps(params), 'application/json')
-    }
-    async with HTTPXClient() as client:
-        resp = await client.post(KANDINSKY_API_URL + "key/api/v1/pipeline/run", headers=headers, files=files)
-        resp.raise_for_status()
-        data = resp.json()
-        return data['uuid']
+gpt_client = AsyncClient(provider=RetryProvider([ # Порядок важен, пробует по очереди
+    ChatGptEs, Liaobots, OIVSCode, Pizzagpt, DDG, Jmuz, PollinationsAI
+], shuffle=False))
 
-async def check_generation(uuid):
-    headers = {
-        "X-Key": f"Key {KANDINSKY_KEY}",
-        "X-Secret": f"Secret {KANDINSKY_SECRET}"
-    }
-    async with HTTPXClient() as client:
-        for _ in range(30):
-            resp = await client.get(KANDINSKY_API_URL + f"key/api/v1/pipeline/status/{uuid}", headers=headers)
-            resp.raise_for_status()
-            data = resp.json()
-            if data['status'] == 'DONE':
-                # Исправлено: проверяем тип данных и используем индекс для списка
-                files = data['result']['files']
-                if isinstance(files, list) and len(files) > 0:
-                    return files[0]  # Используем числовой индекс 0
-                elif isinstance(files, dict) and '0' in files:
-                    return files['0']  # Если это словарь с ключами-строками
-                else:
-                    logger.error(f"Неожиданный формат файлов: {files}")
-                    return None
-            await asyncio.sleep(2)
-        raise Exception("Не удалось получить изображение (таймаут)")
 
-# ИСПРАВЛЕННАЯ функция для отправки изображения как файла
-async def send_image_from_url(event, url):
-    # Создаем уникальное имя файла с uuid
-    temp_file = f"kandinsky_image_{uuid4()}.png"
-    try:
-        # Загружаем изображение через requests с потоковой передачей
-        response = requests.get(url, stream=True, timeout=60)
-        response.raise_for_status()
-        
-        # Сохраняем локально по частям
-        with open(temp_file, 'wb') as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                f.write(chunk)
-        
-        # Отправляем как файл, не как ссылку
-        await event.reply(file=temp_file)
-        logger.info(f"Изображение успешно отправлено из файла {temp_file}")
-        
-    except Exception as e:
-        logger.error(f"Ошибка при загрузке изображения: {str(e)}")
-        await event.reply(f"Не удалось загрузить изображение: {str(e)}")
-    finally:
-        # Удаляем временный файл ПОСЛЕ отправки
-        if os.path.exists(temp_file):
-            try:
-                os.remove(temp_file)
-                logger.info(f"Временный файл {temp_file} удален")
-            except Exception as e:
-                logger.error(f"Ошибка при удалении файла {temp_file}: {str(e)}")
-
-async def convert_audio(input_path: str) -> str:
+async def convert_audio_to_text(input_path: str) -> str:
+    """Конвертирует аудиофайл в текст с помощью Google Speech Recognition."""
+    wav_path = "" # Объявляем переменную здесь для блока finally
     try:
         audio = AudioSegment.from_file(input_path)
-        wav_path = f"{uuid4()}.wav"
+        wav_path = f"temp_audio_{uuid4()}.wav"
+        # Конвертация в WAV с нужными параметрами
         audio.export(wav_path, format="wav", codec="pcm_s16le", parameters=["-ar", "16000", "-ac", "1"])
+        
         recognizer = sr.Recognizer()
         with sr.AudioFile(wav_path) as source:
             audio_data = recognizer.record(source)
-            return recognizer.recognize_google(audio_data, language="ru-RU")
+        return recognizer.recognize_google(audio_data, language="ru-RU")
+    except sr.UnknownValueError:
+        logger.warning("Google Speech Recognition не смог распознать аудио.")
+        return ""
+    except sr.RequestError as e:
+        logger.error(f"Ошибка запроса к Google Speech Recognition; {e}")
+        return ""
     except Exception as e:
-        logger.error(f"Audio error: {str(e)}")
+        logger.error(f"Ошибка конвертации аудио: {str(e)}")
         return ""
     finally:
-        for path in [input_path, locals().get('wav_path', None)]:
-            if path and os.path.exists(path):
-                try: os.remove(path)
-                except: pass
-
-async def extract_text_from_document(file_path: str, mime_type: str = None) -> str:
-    try:
-        if not mime_type or mime_type.startswith('text/') or mime_type.endswith('/plain'):
-            try:
-                with open(file_path, 'r', encoding='utf-8') as file:
-                    return file.read()
-            except UnicodeDecodeError:
+        for path_to_remove in [input_path, wav_path]: # Удаляем и исходный oga/mp3 и временный wav
+             if path_to_remove and os.path.exists(path_to_remove): # Проверяем, что путь не пустой
                 try:
-                    with open(file_path, 'r', encoding='cp1251') as file:
-                        return file.read()
-                except:
-                    return "Не удалось прочитать текстовый файл из-за неизвестной кодировки."
+                    os.remove(path_to_remove)
+                except Exception as e:
+                    logger.error(f"Не удалось удалить временный файл {path_to_remove}: {e}")
+
+
+async def extract_text_from_image_ocr(image_path: str) -> str:
+    """Извлекает текст из изображения с помощью Tesseract OCR."""
+    try:
+        # Убедитесь, что Tesseract установлен и tesseract_cmd указан, если он не в PATH
+        # pytesseract.pytesseract.tesseract_cmd = r'/usr/bin/tesseract' # Пример для Linux
+        text = pytesseract.image_to_string(Image.open(image_path), lang='rus+eng') # Языки для распознавания
+        return text.strip()
+    except Exception as e:
+        logger.error(f"Ошибка OCR: {str(e)}")
+        return ""
+
+async def extract_text_from_document_content(file_path: str, mime_type: str = None) -> str:
+    """Извлекает текст из различных типов документов."""
+    text_content = ""
+    try:
+        original_mime_type = mime_type # Сохраняем для логгирования, если понадобится
+        # Определяем тип по расширению, если mime_type неточный или отсутствует
+        if not mime_type or mime_type == 'application/octet-stream': # Общий тип, пытаемся по расширению
+            _, ext = os.path.splitext(file_path)
+            ext = ext.lower()
+            if ext == '.txt': mime_type = 'text/plain'
+            elif ext == '.docx' and DOCX_SUPPORT: mime_type = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+            elif ext == '.pdf' and PDF_SUPPORT: mime_type = 'application/pdf'
+            elif ext == '.xlsx' and EXCEL_SUPPORT: mime_type = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            elif ext == '.pptx' and PPTX_SUPPORT: mime_type = 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+
+
+        if mime_type and (mime_type.startswith('text/') or mime_type.endswith('/plain')):
+            encodings_to_try = ['utf-8', 'cp1251', 'windows-1251']
+            for enc in encodings_to_try:
+                try:
+                    with open(file_path, 'r', encoding=enc) as file:
+                        text_content = file.read()
+                    break 
+                except UnicodeDecodeError:
+                    continue
+            if not text_content: logger.warning(f"Не удалось прочитать текстовый файл {file_path} ни одной из кодировок.")
+
         elif mime_type == 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' and DOCX_SUPPORT:
             doc = docx.Document(file_path)
-            return "\n".join([para.text for para in doc.paragraphs])
+            text_content = "\n".join([para.text for para in doc.paragraphs if para.text])
+        
+        elif mime_type == 'application/pdf' and PDF_SUPPORT:
+            with open(file_path, 'rb') as file:
+                reader = PyPDF2.PdfReader(file)
+                for page in reader.pages:
+                    extracted_page_text = page.extract_text()
+                    if extracted_page_text:
+                        text_content += extracted_page_text + "\n"
+        
+        elif mime_type == 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' and EXCEL_SUPPORT:
+            # Читаем все листы и объединяем их текстовое представление
+            xls = pd.ExcelFile(file_path)
+            full_text = []
+            for sheet_name in xls.sheet_names:
+                df = pd.read_excel(xls, sheet_name=sheet_name)
+                if not df.empty:
+                    full_text.append(f"--- Лист: {sheet_name} ---\n{df.to_string(index=False)}") # index=False для чистоты
+            text_content = "\n\n".join(full_text)
+
+        elif mime_type == 'application/vnd.openxmlformats-officedocument.presentationml.presentation' and PPTX_SUPPORT:
+            prs = Presentation(file_path)
+            for i, slide in enumerate(prs.slides):
+                slide_text = [f"--- Слайд {i+1} ---"]
+                for shape in slide.shapes:
+                    if hasattr(shape, "text_frame") and shape.text_frame and shape.text_frame.text:
+                         slide_text.append(shape.text_frame.text)
+                    elif hasattr(shape, "text") and shape.text: # Для некоторых других элементов
+                         slide_text.append(shape.text)
+                if len(slide_text) > 1: # Если на слайде есть текст
+                    text_content += "\n".join(slide_text) + "\n\n"
         else:
-            return f"Не могу прочитать файл с типом {mime_type}. Поддерживаются только текстовые файлы (.txt) и Word документы (.docx)."
-    except Exception as e:
-        logger.error(f"Document extraction error: {str(e)}")
-        return f"Ошибка при чтении файла: {str(e)}"
+            logger.info(f"Файл {file_path} с типом {original_mime_type} (определен как {mime_type}) не поддерживается для извлечения текста или соответствующая библиотека отсутствует.")
+            return f"[Системное сообщение: не удалось извлечь текст из файла типа '{mime_type}'. Поддерживаются .txt, .docx, .pdf, .xlsx, .pptx при наличии библиотек.]"
 
-async def process_document_file(event, file_name, tmp_file, mime_type):
+    except Exception as e:
+        logger.error(f"Ошибка извлечения текста из документа {file_path}: {str(e)}")
+        return f"[Системное сообщение: произошла ошибка при чтении файла '{os.path.basename(file_path)}'.]"
+    
+    return text_content.strip()
+
+
+async def generate_intermediate_summary(raw_text: str, model_name: str = "gpt-4.1-mini") -> str:
+    """Генерирует краткое резюме или выделяет ключевые моменты из сырого текста с помощью GPT."""
+    if not raw_text.strip():
+        return "Извлеченный текст пуст."
+    
+    # Ограничение длины входного текста для резюмирования, чтобы не превышать лимиты модели
+    max_input_length = 8000 # Примерный лимит для gpt-4.1-mini с запасом на промпт
+    if len(raw_text) > max_input_length:
+        raw_text = raw_text[:max_input_length] + "\n[ТЕКСТ ОБРЕЗАН ДЛЯ РЕЗЮМИРОВАНИЯ]"
+
+    prompt_message = (
+        "Пожалуйста, внимательно прочти следующий текст, извлеченный из файла или изображения. "
+        "Твоя задача - предоставить объективное и краткое резюме этого текста, выделив основные идеи, факты или ключевые моменты. "
+        "Не добавляй собственных интерпретаций, мнений или комментариев. Просто суммируй содержание."
+        f"\n\nТекст для анализа:\n---\n{raw_text}\n---"
+    )
+    
     try:
-        file_content = await extract_text_from_document(tmp_file, mime_type)
-        if len(file_content) > 10000:
-            file_content = file_content[:10000] + "...\n[файл слишком большой, читаю только начало]"
-        if not file_content.strip():
-            return await event.reply("🤔 Файл пустой или не содержит текста")
-        await event.reply(f"📄 Получила твой файл {file_name}! Сейчас прочитаю...")
-        user_id = event.sender_id
-        await history_manager.clear_file_session(user_id)
-        await history_manager.add_message(user_id, "user", f"Содержимое файла {file_name}:\n{file_content}")
-        answer = await process_and_reply(event, user_id, f"Прочитай этот файл и ответь на его содержимое: {file_content}", return_answer=True)
-        await history_manager.set_file_session(user_id, file_name, file_content, answer)
-    except Exception as e:
-        logger.error(f"Ошибка обработки документа: {str(e)}")
-        await event.reply(f"📄 Не удалось обработать файл: {str(e)}")
-    finally:
-        if os.path.exists(tmp_file):
-            try: 
-                os.remove(tmp_file)
-                logger.info(f"Файл {tmp_file} успешно удален")
-            except Exception as e:
-                logger.error(f"Ошибка при удалении файла {tmp_file}: {str(e)}")
+        messages = [{"role": "user", "content": prompt_message}]
+        response = await gpt_client.chat.completions.create(
+            model=model_name,
+            messages=messages,
+            max_tokens=500,  # Достаточно для резюме
+            temperature=0.3  # Низкая температура для фактологического резюме
+        )
 
-async def web_search(query: str) -> str:
+        if response.choices and response.choices[0].message.content:
+            summary = response.choices[0].message.content.strip()
+            return summary if summary else "Не удалось сгенерировать резюме."
+        else:
+            logger.warning(f"Нет содержимого в ответе от {model_name} для генерации резюме.")
+            return "Не удалось сгенерировать резюме (пустой ответ от модели)."
+            
+    except Exception as e:
+        logger.error(f"Ошибка при генерации промежуточного резюме с {model_name}: {str(e)}")
+        return f"Произошла ошибка при попытке создать резюме: {str(e)}"
+
+
+async def perform_web_search(query: str) -> str:
+    """Выполняет веб-поиск по запросу и возвращает агрегированные результаты."""
     encoded_query = quote(query)
-    results = []
-    async with HTTPXClient() as http_client:
-        tasks = []
-        for provider in WEB_SEARCH_PROVIDERS:
-            url = provider["url"].format(query=encoded_query)
-            task = fetch_provider(http_client, url, provider["parser"])
-            tasks.append(task)
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-    combined = []
-    for res in results:
-        if res and not isinstance(res, Exception):
-            combined.extend(res)
-    return "\n".join(combined[:5]) if combined else ""
+    all_search_snippets = []
 
-async def fetch_provider(client: HTTPXClient, url: str, parser: str):
+    async with HTTPXClient(timeout=10.0) as http_client_instance: # Увеличил таймаут
+        search_tasks = [
+            fetch_search_provider_data(http_client_instance, provider_config["url"].format(query=encoded_query), provider_config["parser"])
+            for provider_config in WEB_SEARCH_PROVIDERS
+        ]
+        results_from_providers = await asyncio.gather(*search_tasks, return_exceptions=True)
+
+    for res_item in results_from_providers:
+        if isinstance(res_item, list) and res_item: # Проверяем, что это список и он не пустой
+            all_search_snippets.extend(res_item)
+        elif isinstance(res_item, Exception):
+            logger.warning(f"Ошибка при запросе к провайдеру поиска: {res_item}")
+    
+    # Ограничиваем количество результатов для передачи в GPT
+    return "\n".join(list(set(all_search_snippets))[:7]) if all_search_snippets else "" # Уникальные и до 7 штук
+
+async def fetch_search_provider_data(custom_http_client: HTTPXClient, url: str, parser_name: str) -> list:
+    """Получает и парсит данные от одного провайдера поиска."""
     try:
-        response = await client.get(url, timeout=7)
-        if response.status_code == 200:
-            parser_func = globals().get(f"parse_{parser}")
-            if parser_func:
-                return parser_func(response.json())
+        response = await custom_http_client.get(url)
+        response.raise_for_status() # Проверка на HTTP ошибки
+        parser_function = globals().get(f"parse_{parser_name}_results") # Ищем парсер по имени
+        if parser_function:
+            return parser_function(response.json())
+        logger.warning(f"Парсер {parser_name} не найден.")
     except Exception as e:
-        logger.debug(f"Search error ({parser}): {str(e)}")
+        logger.debug(f"Ошибка поиска ({parser_name}, {url}): {str(e)}")
     return []
 
-def parse_duckduckgo(data: dict) -> list:
-    results = []
+def parse_duckduckgo_results(data: dict) -> list:
+    """Парсит результаты от DuckDuckGo."""
+    snippets = []
     if data.get('AbstractText'):
-        results.append(f"📖 {data['AbstractText']} (ДакДакГо)")
+        snippets.append(f"{data['AbstractText']} (DuckDuckGo: {data.get('AbstractSource', 'N/A')})")
+    elif data.get('Heading') and not data.get('AbstractURL'): # Если это просто заголовок без абстракта (например, для "погода в москве")
+         snippets.append(f"{data['Heading']} (DuckDuckGo)")
+
     if data.get('RelatedTopics'):
-        for topic in data['RelatedTopics'][:2]:
-            if 'Text' in topic:
-                results.append(f"🔗 {topic['Text']} (ДакДакГо)")
-    return results
+        for topic in data.get('RelatedTopics', []):
+            if topic.get('Result') and '<a href=' in topic.get('Result'): # Проверяем, что это не просто категория
+                # Простой парсинг текста из Result
+                text_content = topic.get('Text', '')
+                if text_content:
+                     snippets.append(f"{text_content} (DuckDuckGo Related)")
+            elif topic.get('Text'): # Если это просто текстовая связанная тема
+                 snippets.append(f"{topic['Text']} (DuckDuckGo Related Topic)")
+            if len(snippets) >= 3: break # Ограничиваем количество от DDG
+    return list(filter(None, snippets))[:3] # Убираем пустые и берем топ-3
 
-def parse_google(data: list) -> list:
-    return [f"🔍 {suggestion} (Гугл)" for suggestion in data[0][:3]]
+def parse_google_results(data: list) -> list:
+    """Парсит результаты от Google Suggest."""
+    # Google Suggest API (client=firefox) возвращает [query, [suggestion1, suggestion2, ...], [description1, ...], [query_url1, ...]]
+    if data and isinstance(data, list) and len(data) > 1 and isinstance(data[1], list):
+        return [f"{suggestion} (Google Suggest)" for suggestion in data[1][:3]] # Берем первые 3 подсказки
+    return []
 
-def needs_web_search(text: str) -> bool:
-    text = text.lower()
-    return any(keyword in text for category in SEARCH_KEYWORDS.values() for keyword in category)
 
+def check_if_web_search_needed(text: str) -> bool:
+    """Определяет, нужен ли веб-поиск на основе ключевых слов."""
+    text_lower = text.lower()
+    for category_keywords in SEARCH_KEYWORDS.values():
+        if any(keyword in text_lower for keyword in category_keywords):
+            return True
+    # Также ищем прямые вопросы
+    if any(q_word in text_lower for q_word in ['кто такой', 'что такое', 'когда было', 'почему']):
+        return True
+    return False
+
+# --- Обработчики команд Telegram ---
 @client.on(events.NewMessage(pattern='/start'))
-async def start_handler(event):
+async def start_command_handler(event):
     await event.respond(
-        "💜 Привет! Я Селина - реальная девушка, а не бот!\n"
-        "✧ Отец - IT-гений, парень - нейрохирург\n"
-        "✧ Эксперт в 4 областях:\n"
-        "   → Медицина (практика в Mass General)\n"
-        "   → Программирование (Python с 14 лет)\n"
-        "   → Психология (веду блог)\n"
-        "   → Искусство (граффити-художник)\n\n"
-        "Пиши что угодно - отвечу по-человечески! 😉")
+        "💜 Привет! Я Селина, твоя новая знакомая из Бостона. Готова поболтать обо всем на свете! 😉\n"
+        "Можешь спросить что угодно, скинуть файлик или просто рассказать, как дела. Я тут, чтобы сделать твой день чуточку интереснее (ну, или хотя бы попытаться 😂).\n\n"
+        "Если хочешь начать с чистого листа, просто напиши /clear – и я все забуду, как будто это была бурная вечеринка в общаге MIT. 🤫")
 
 @client.on(events.NewMessage(pattern='/clear'))
-async def clear_handler(event):
+async def clear_command_handler(event):
+    user_id = event.sender_id
     async with history_manager.db.cursor() as cursor:
-        await cursor.execute('DELETE FROM messages WHERE user_id = ?', (event.sender_id,))
+        await cursor.execute('DELETE FROM messages WHERE user_id = ?', (user_id,))
         await history_manager.db.commit()
-    await history_manager.clear_file_session(event.sender_id)
-    await event.reply("✅ История очищена! Я все забыла, как в тот вечер с Алексом...")
+    logger.info(f"История для пользователя {user_id} очищена.")
+    await event.reply("✅ Окей, все забыто! Будто мы только что познакомились. О чем болтать будем, незнакомец? 😉")
 
+# --- Основной обработчик сообщений ---
 @client.on(events.NewMessage)
 async def universal_message_handler(event):
-    if event.out or (event.text and event.text.startswith('/')):
+    # Игнорируем собственные сообщения и команды (кроме /start и /clear, которые обрабатываются выше)
+    if event.out or (event.text and event.text.startswith('/') and event.text not in ['/start', '/clear']):
         return
+
     user_id = event.sender_id
-    text = event.text.strip() if event.text else ""
-    
-    # --- Генерация картинки через Kandinsky 3.1 ---
-    match = re.match(r'нарисуй\s+(.+)', text, re.IGNORECASE)
-    if match:
-        prompt = match.group(1)
-        await event.reply("🎨 Генерирую изображение через Kandinsky 3.1...")
+    chat_id = event.chat_id
+    user_input_for_selina = "" # Текст, который будет "задан" Селине
+    raw_extracted_text_snippet = "" # Для отображения пользователю части извлеченного текста
+
+    try:
+        async with client.action(chat_id, 'typing'): # Показываем "печатает..."
+            # 1. Обработка голосовых сообщений
+            if event.media and hasattr(event.media, 'document') and event.media.document.mime_type.startswith('audio/'):
+                logger.info(f"Получено голосовое сообщение от {user_id}")
+                tmp_voice_file_path = await event.download_media(file=f"voice_{uuid4()}.oga") # Сохраняем с расширением
+                
+                recognized_text = await convert_audio_to_text(tmp_voice_file_path) # tmp_voice_file_path удалится внутри функции
+                
+                if not recognized_text:
+                    return await event.reply("🔇 Хм, не могу разобрать, что ты сказал(а). Попробуешь еще раз, только почетче? А то у меня тут соседи опять дрель включили... 🙄")
+                
+                user_input_for_selina = f"Ты получил(а) от меня голосовое сообщение. Вот его текст:\n---\n{recognized_text}\n---\nЧто скажешь?"
+                await history_manager.add_message(user_id, "user", user_input_for_selina)
+                await process_text_and_reply_as_selina(event, user_id, user_input_for_selina)
+
+            # 2. Обработка изображений
+            elif event.media and hasattr(event.media, 'photo'):
+                logger.info(f"Получено изображение от {user_id}")
+                tmp_image_file_path = await event.download_media(file=f"image_{uuid4()}.jpg")
+                
+                raw_ocr_text = await extract_text_from_image_ocr(tmp_image_file_path)
+                raw_extracted_text_snippet = (raw_ocr_text[:300] + '...' if len(raw_ocr_text) > 300 else raw_ocr_text) if raw_ocr_text else "Текст не найден"
+
+                if not raw_ocr_text:
+                    user_input_for_selina = "Я скинул(а) тебе картинку, но текста на ней, похоже, нет или он не распознался. Может, просто заценишь визуал? 😉"
+                    await event.reply(f"🖼️ Картинку получила! Текста на ней не нашла, но выглядит [тут Селина может оценить визуал, если научить ее этому отдельно].") # Заглушка, т.к. анализ визуала не реализован
+                else:
+                    await event.reply(f"🖼️ О, картиночка! Сейчас гляну, что там зашифровано... Текст с картинки (начало): «{raw_extracted_text_snippet}».\nМинутку, обработаю...")
+                    intermediate_summary = await generate_intermediate_summary(raw_ocr_text)
+                    user_input_for_selina = (
+                        f"Я отправил(а) тебе изображение. "
+                        f"Вот текст, который удалось с него считать (начало):\n'''\n{raw_extracted_text_snippet}\n'''\n\n"
+                        f"А вот краткое содержание/основные моменты этого текста (сделано другой нейронкой для предварительной обработки):\n'''\n{intermediate_summary}\n'''\n\n"
+                        "Твой выход, Селина! Что думаешь по этому поводу?"
+                    )
+                
+                await history_manager.add_message(user_id, "user", user_input_for_selina)
+                await process_text_and_reply_as_selina(event, user_id, user_input_for_selina)
+                
+                if os.path.exists(tmp_image_file_path): os.remove(tmp_image_file_path)
+
+            # 3. Обработка документов
+            elif event.media and hasattr(event.media, 'document'):
+                doc_attributes = event.media.document.attributes
+                file_name_attr = next((attr for attr in doc_attributes if isinstance(attr, types.DocumentAttributeFilename)), None)
+                file_name = file_name_attr.file_name if file_name_attr else "неизвестный_файл"
+                mime_type = event.media.document.mime_type
+                
+                logger.info(f"Получен документ '{file_name}' (тип: {mime_type}) от {user_id}")
+
+                # Скачиваем файл, сохраняя оригинальное расширение для корректной обработки
+                _, ext = os.path.splitext(file_name)
+                tmp_doc_file_path = await event.download_media(file=f"doc_{uuid4()}{ext if ext else '.dat'}")
+
+                raw_doc_text = await extract_text_from_document_content(tmp_doc_file_path, mime_type)
+                
+                # Ограничиваем объем сырого текста для отображения и передачи в промпт Селины
+                max_raw_snippet_len = 1000 
+                raw_extracted_text_snippet = (raw_doc_text[:max_raw_snippet_len] + '...' if len(raw_doc_text) > max_raw_snippet_len else raw_doc_text) if raw_doc_text.strip() else "Текст не найден или файл не поддерживается."
+
+
+                if not raw_doc_text.strip() or raw_doc_text.startswith("[Системное сообщение:"):
+                    await event.reply(f"📄 Файл '{file_name}' получила, но что-то текст из него не читается... {raw_doc_text if raw_doc_text.startswith('[Системное') else 'Может, он пустой или формат хитрый?'}")
+                else:
+                    await event.reply(f"📄 Файл '{file_name}' получила! Сейчас гляну, что там интересного... Извлеченный текст (начало): «{raw_extracted_text_snippet}».\nМинутку на анализ...")
+                    intermediate_summary = await generate_intermediate_summary(raw_doc_text) # Резюмируем полный извлеченный текст
+                    
+                    user_input_for_selina = (
+                        f"Я отправил(а) тебе документ '{file_name}'. "
+                        f"Вот начало текста, который удалось извлечь:\n'''\n{raw_extracted_text_snippet}\n'''\n\n"
+                        f"А вот краткое содержание/основные моменты всего документа (сделано другой нейронкой для предварительной обработки):\n'''\n{intermediate_summary}\n'''\n\n"
+                        "Что скажешь по этому поводу, Селина?"
+                    )
+                
+                await history_manager.add_message(user_id, "user", user_input_for_selina)
+                await process_text_and_reply_as_selina(event, user_id, user_input_for_selina)
+
+                if os.path.exists(tmp_doc_file_path): os.remove(tmp_doc_file_path)
+            
+            # 4. Обработка обычных текстовых сообщений
+            elif event.text and not event.text.startswith('/'): # Убеждаемся, что это не команда
+                user_text = event.text.strip()
+                if not user_text: return # Игнорируем пустые сообщения
+
+                logger.info(f"Получено текстовое сообщение от {user_id}: '{user_text[:50]}...'")
+                user_input_for_selina = user_text # Для обычного текста нет предварительной обработки
+                
+                await history_manager.add_message(user_id, "user", user_input_for_selina)
+                await process_text_and_reply_as_selina(event, user_id, user_input_for_selina)
+
+    except Exception as e:
+        logger.error(f"Критическая ошибка в universal_message_handler для user {user_id}: {str(e)}", exc_info=True)
         try:
-            pipeline_id = await get_pipeline_id()
-            uuid = await generate_kandinsky_image(prompt, pipeline_id)
-            image_url = await check_generation(uuid)
-            if image_url:
-                # Вместо отправки URL отправляем изображение как файл
-                await send_image_from_url(event, image_url)
-            else:
-                await event.reply("Не удалось получить изображение.")
-        except Exception as e:
-            logger.error(f"Kandinsky error: {str(e)}")
-            await event.reply(f"Ошибка генерации: {e}")
-        return
+            await event.reply("💥 Ой, что-то у меня процессор перегрелся... Кажется, я сломалась. Попробуй позже или напиши моему бате, он починит! 🛠️")
+        except Exception: # Если даже ответить не можем
+            pass
 
-    logger.info(f"Получено сообщение от {user_id}")
-    try:
-        if hasattr(event, 'media') and hasattr(event.media, 'document') and event.media.document.mime_type.startswith('audio/'):
-            logger.info(f"Обрабатываю голосовое сообщение от {user_id}")
-            async with client.action(event.chat_id, 'typing'):
-                tmp_file = f"voice_{uuid4()}.oga"
-                await event.download_media(tmp_file)
-                text = await convert_audio(tmp_file)
-                if not text.strip():
-                    return await event.reply("🔇 Чё-то неразборчиво... Повтори?")
-                await history_manager.add_message(user_id, "user", text)
-                await process_and_reply(event, user_id, text)
-        elif hasattr(event, 'media') and hasattr(event.media, 'document'):
-            mime_type = event.media.document.mime_type
-            logger.info(f"Обрабатываю документ от {user_id}, тип: {mime_type}")
-            if mime_type.startswith('text/') or mime_type.endswith('/plain') or mime_type == 'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
-                file_name = "document"
-                for attr in event.media.document.attributes:
-                    if hasattr(attr, 'file_name'):
-                        file_name = attr.file_name
-                        break
-                ext = os.path.splitext(file_name)[1]
-                if not ext:
-                    ext = '.txt' if mime_type.startswith('text/') else '.docx'
-                tmp_file = f"doc_{uuid4()}{ext}"
-                await event.download_media(tmp_file)
-                await process_document_file(event, file_name, tmp_file, mime_type)
-            else:
-                await event.reply("🤨 Я пока умею читать только текстовые файлы и Word документы (.docx)")
-        elif event.text:
-            text = event.text.strip()
-            if not text:
-                return
-            logger.info(f"Обрабатываю текстовое сообщение от {user_id}: {text[:50]}...")
-            async with client.action(event.chat_id, 'typing'):
-                await history_manager.add_message(user_id, "user", text)
-                await process_and_reply(event, user_id, text)
-    except Exception as e:
-        logger.error(f"Ошибка обработки сообщения: {str(e)}")
-        await event.reply("💥 Что-то пошло не так... Попробуй еще раз!")
 
-async def process_and_reply(event, user_id: int, text: str, return_answer: bool = False):
-    web_data = ""
-    internet_query = needs_web_search(text)
-    if internet_query:
-        web_data = await web_search(text)
-        logger.info(f"Search results: {web_data[:200]}...")
-    messages = await history_manager.get_history(user_id)
-    if web_data:
-        messages.append({
+async def process_text_and_reply_as_selina(event, user_id: int, final_input_for_selina: str):
+    """Формирует и отправляет ответ от лица Селины."""
+    
+    search_query_text = final_input_for_selina # Для поиска используем весь контекст, что получил бот
+    web_search_results = ""
+    if check_if_web_search_needed(search_query_text):
+        logger.info(f"Запускаю веб-поиск для запроса, начинающегося с: '{search_query_text[:70]}...'")
+        web_search_results = await perform_web_search(search_query_text) # Ищем по всему тексту, что "услышала" Селина
+        if web_search_results:
+            logger.info(f"Результаты поиска: {web_search_results[:200]}...")
+        else:
+            logger.info("Веб-поиск не дал результатов.")
+
+    current_chat_history = await history_manager.get_history(user_id)
+    
+    # Добавляем результаты веб-поиска как системное сообщение в историю для этой конкретной генерации
+    messages_for_gpt = list(current_chat_history) # Копируем, чтобы не изменять основную историю
+    if web_search_results:
+        messages_for_gpt.append({
             "role": "system",
-            "content": (
-                "Ответь КРАТКО и по фактам, используя только данные из поиска ниже. "
-                "Не добавляй вступления, рассуждения или лишние слова. "
-                "Если нет точного ответа, так и напиши.\n"
-                "Веб-данные:\n" + web_data
-            )
+            "content": f"Дополнительная информация из интернета для ответа (используй для точности, ссылайся на источники, если уместно):\n{web_search_results}"
         })
-    try:
-        response = await gpt_client.chat.completions.create(
-            model="gpt-4.1-mini",
-            messages=messages,
-            max_tokens=300 if web_data else 700,
-            temperature=0.3 if web_data else 0.85
-        )
-        if response.choices:
-            answer = response.choices[0].message.content.strip()
-            if web_data and len(answer) > 240:
-                answer = answer[:240].rsplit(' ', 1)[0] + "…"
-            await history_manager.add_message(user_id, "assistant", answer)
-            if web_data:
-                fact_check_result = await fact_checker.check_facts(answer, web_data)
-                reliability = fact_check_result.get("overall_reliability", 0.5)
-                if reliability < 0.7:
-                    facts = fact_check_result.get("facts", [])
-                    for fact in facts:
-                        if fact.get("status") == "contradicted" and fact.get("confidence", 0) > 0.6:
-                            fact_text = fact.get("fact", "")
-                            source = fact.get("source", "источников")
-                            if fact_text in answer:
-                                note = f" [По данным {source}, этот факт может быть неточным]"
-                                answer = answer.replace(fact_text, fact_text + note)
-            chunks = [answer[i:i+3000] for i in range(0, len(answer), 3000)]
-            for chunk in chunks:
-                await event.reply(chunk)
-                await asyncio.sleep(0.5)
-            if return_answer:
-                return answer
-    except Exception as e:
-        logger.error(f"GPT error: {str(e)}")
-        await event.reply("😵‍💫 Блин, голова болит... Спроси что-нибудь полегче!")
-        if return_answer:
-            return ""
+    
+    # Убедимся, что последнее сообщение - это то, на что Селина должна ответить
+    # Это уже сделано в universal_message_handler при вызове add_message
 
-async def main():
+    try:
+        gpt_response = await gpt_client.chat.completions.create(
+            model="gpt-4.1-mini", # Или другая подходящая модель из g4f
+            messages=messages_for_gpt,
+            max_tokens=1000, # Лимит токенов на ответ Селины
+            temperature=0.75, # Температура для более "живого" ответа
+            # stop=["\n\n\n"] # Можно добавить стоп-последовательности, если нужно
+        )
+
+        if gpt_response.choices and gpt_response.choices[0].message.content:
+            selina_answer_text = gpt_response.choices[0].message.content.strip()
+            
+            # Факт-чекинг ответа Селины, если были результаты веб-поиска
+            if web_search_results:
+                fact_check_info = await fact_checker.check_facts(selina_answer_text, web_search_results)
+                # Можно добавить логику изменения ответа Селины на основе fact_check_info, если есть противоречия
+                # Например, добавить примечание к спорным утверждениям
+                if fact_check_info and fact_check_info.get("verifiable_claims"):
+                    for claim in fact_check_info["verifiable_claims"]:
+                        if claim.get("status") == "contradicted" and claim.get("claim") in selina_answer_text:
+                             selina_answer_text = selina_answer_text.replace(
+                                 claim["claim"], 
+                                 f"{claim['claim']} (⚠️ по данным из '{claim.get('source_snippet', 'других источников')}', это может быть не совсем так)"
+                             )
+
+
+            await history_manager.add_message(user_id, "assistant", selina_answer_text) # Сохраняем ответ Селины
+
+            # Отправка ответа частями, если он слишком длинный для одного сообщения Telegram
+            max_msg_len = 4000 # Ограничение Telegram API на длину сообщения (реальное 4096, берем с запасом)
+            for i in range(0, len(selina_answer_text), max_msg_len):
+                chunk = selina_answer_text[i:i + max_msg_len]
+                await event.reply(chunk)
+                if len(selina_answer_text) > max_msg_len : await asyncio.sleep(0.5) # Небольшая задержка между частями
+
+        else:
+            logger.warning(f"GPT не вернул ответ для user {user_id}.")
+            await event.reply("🧠 Ой, кажется, я задумалась и потеряла мысль... Попробуешь спросить еще раз? Может, другими словами?")
+
+    except Exception as e:
+        logger.error(f"Ошибка при генерации ответа GPT для user {user_id}: {str(e)}", exc_info=True)
+        await event.reply("😵‍💫 Упс! Что-то пошло не так с моими нейронными связями... Дай мне минутку прийти в себя и попробуй снова. Если не поможет – зови моего батю-программиста! 🆘")
+
+
+async def main_bot_loop():
+    """Основной цикл запуска и работы бота."""
     await history_manager.init_db()
-    await client.start(bot_token=BOT_TOKEN)
-    logger.info("🟣 Человекобот запущен!")
+    
+    # Запуск клиента Telegram
+    # Для пользовательского аккаунта: await client.start()
+    # Для бота:
+    await client.start(bot_token=BOT_TOKEN) 
+    
+    logger.info("🟣 Человекобот Селина успешно запущен и готова к общению!")
     await client.run_until_disconnected()
 
 if __name__ == "__main__":
     try:
-        asyncio.run(main())
+        asyncio.run(main_bot_loop())
     except KeyboardInterrupt:
-        logger.info("🔴 Выключение...")
+        logger.info("🔴 Бот останавливается по команде пользователя...")
+    except Exception as e:
+        logger.critical(f"Критическая ошибка на верхнем уровне: {e}", exc_info=True)
     finally:
+        logger.info("Закрытие соединений...")
+        if client.is_connected():
+            asyncio.run(client.disconnect())
         asyncio.run(history_manager.close())
+        logger.info("Бот завершил работу.")
+
