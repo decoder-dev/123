@@ -1,4 +1,5 @@
 import SwiftUI
+import SwiftData
 import SafariBrowserCore
 
 struct UserScriptsView: View {

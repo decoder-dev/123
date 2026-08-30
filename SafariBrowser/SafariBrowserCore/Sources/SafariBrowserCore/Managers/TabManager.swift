@@ -61,6 +61,11 @@ public final class TabManager {
         tabs.insert(tab, at: destination)
     }
 
+    public func resetToSingleTab() {
+        tabs.removeAll()
+        addTab()
+    }
+
     public func togglePrivateMode() {
         isPrivateMode.toggle()
         tabs.removeAll()

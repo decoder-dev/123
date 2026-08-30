@@ -38,8 +38,7 @@ struct BrowserWebView: UIViewRepresentable {
     }
 
     static func dismantleUIView(_ uiView: WebViewContainer, coordinator: Coordinator) {
-        coordinator.progressObservation?.invalidate()
-        coordinator.progressObservation = nil
+        coordinator.teardown()
         uiView.webView.navigationDelegate = nil
         uiView.webView.uiDelegate = nil
         uiView.webView.scrollView.delegate = nil
@@ -108,6 +107,11 @@ struct BrowserWebView: UIViewRepresentable {
                     self?.tab.isLoading = webView.estimatedProgress < 1.0
                 }
             }
+        }
+
+        func teardown() {
+            progressObservation?.invalidate()
+            progressObservation = nil
         }
 
         func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {

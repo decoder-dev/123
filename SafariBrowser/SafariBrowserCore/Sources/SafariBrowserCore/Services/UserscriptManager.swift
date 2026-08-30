@@ -32,6 +32,7 @@ public struct Userscript: Identifiable, Codable, Sendable {
 }
 
 @MainActor
+@Observable
 public final class UserscriptManager {
     public var scripts: [Userscript] = []
 

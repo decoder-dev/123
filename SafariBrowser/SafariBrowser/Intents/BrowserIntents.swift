@@ -1,9 +1,9 @@
 import AppIntents
 
 struct OpenURLIntent: AppIntent {
-    static var title: LocalizedStringResource = "Open URL in SafariBrowser"
-    static var description = IntentDescription("Opens a URL in SafariBrowser.")
-    static var openAppWhenRun = true
+    static let title: LocalizedStringResource = "Open URL in SafariBrowser"
+    static let description = IntentDescription("Opens a URL in SafariBrowser.")
+    static let openAppWhenRun = true
 
     @Parameter(title: "URL")
     var url: URL
@@ -21,9 +21,9 @@ struct OpenURLIntent: AppIntent {
 }
 
 struct NewTabIntent: AppIntent {
-    static var title: LocalizedStringResource = "New Tab"
-    static var description = IntentDescription("Opens a new tab in SafariBrowser.")
-    static var openAppWhenRun = true
+    static let title: LocalizedStringResource = "New Tab"
+    static let description = IntentDescription("Opens a new tab in SafariBrowser.")
+    static let openAppWhenRun = true
 
     @Parameter(title: "URL", default: URL(string: "about:blank")!)
     var url: URL

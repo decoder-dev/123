@@ -25,8 +25,7 @@ enum BrowsingDataClearer {
         sessionStore.clear()
         clearAppGroupData()
 
-        tabManager.tabs.removeAll()
-        tabManager.addTab()
+        tabManager.resetToSingleTab()
         WidgetCenter.shared.reloadAllTimelines()
     }
 
