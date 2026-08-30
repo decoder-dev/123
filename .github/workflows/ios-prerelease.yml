@@ -74,7 +74,7 @@ jobs:
       - name: Resolve version
         working-directory: SafariBrowser
         run: |
-          VERSION="$(awk '/^ *MARKETING_VERSION:/ {print $2; exit}' project.yml)"
+          VERSION="$(awk '/^ *MARKETING_VERSION:/ {gsub(/"/, "", $2); print $2; exit}' project.yml)"
           test -n "$VERSION"
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "Building SafariBrowser $VERSION"
