@@ -4,53 +4,23 @@ on:
   push:
     tags:
       - 'v*'
+    branches:
+      - main
   workflow_dispatch:
-    inputs:
-      tag:
-        description: 'Release tag to publish (pre-release)'
-        required: true
-        default: 'v1.0.0-beta.1'
-        type: string
+
+concurrency:
+  group: ios-prerelease-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: write
 
 jobs:
-  build-ipa:
+  test:
+    name: Unit tests
     runs-on: macos-15
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Verify signing secrets
-        env:
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
-          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
-          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
-          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
-          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
-        run: |
-          set -euo pipefail
-          missing=()
-          [ -z "${APPLE_TEAM_ID}" ] && missing+=("APPLE_TEAM_ID")
-          [ -z "${BUILD_CERTIFICATE_BASE64}" ] && missing+=("BUILD_CERTIFICATE_BASE64")
-          [ -z "${P12_PASSWORD}" ] && missing+=("P12_PASSWORD")
-          [ -z "${ASC_KEY_ID}" ] && missing+=("ASC_KEY_ID")
-          [ -z "${ASC_ISSUER_ID}" ] && missing+=("ASC_ISSUER_ID")
-          [ -z "${ASC_PRIVATE_KEY}" ] && missing+=("ASC_PRIVATE_KEY")
-          if [ "${#missing[@]}" -gt 0 ]; then
-            echo "::error::Missing GitHub secrets for signed IPA: ${missing[*]}"
-            echo "Add repository secrets (Settings → Secrets → Actions):"
-            echo "  APPLE_TEAM_ID          — 10-char Team ID from developer.apple.com"
-            echo "  BUILD_CERTIFICATE_BASE64 — Apple Development/Distribution .p12 (base64)"
-            echo "  P12_PASSWORD           — password for the .p12 file"
-            echo "  KEYCHAIN_PASSWORD      — any random string for CI keychain"
-            echo "  ASC_KEY_ID             — App Store Connect API key ID"
-            echo "  ASC_ISSUER_ID          — App Store Connect issuer ID"
-            echo "  ASC_PRIVATE_KEY        — contents of AuthKey_XXXX.p8"
-            exit 1
-          fi
+      - uses: actions/checkout@v4
 
       - name: Select Xcode
         run: sudo xcode-select -s /Applications/Xcode.app
@@ -58,49 +28,9 @@ jobs:
       - name: Install XcodeGen
         run: HOMEBREW_NO_REQUIRE_TAP_TRUST=1 brew install xcodegen
 
-      - name: Import signing certificate
-        env:
-          BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
-          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
-          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
-        run: |
-          set -euo pipefail
-          KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
-          CERTIFICATE_PATH="$RUNNER_TEMP/build_certificate.p12"
-          KEYCHAIN_PASSWORD="${KEYCHAIN_PASSWORD:-ci-keychain-password}"
-
-          echo -n "$BUILD_CERTIFICATE_BASE64" | base64 --decode -o "$CERTIFICATE_PATH"
-          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security import "$CERTIFICATE_PATH" -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
-          security list-keychain -d user -s "$KEYCHAIN_PATH" login.keychain
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-
-      - name: Setup App Store Connect API key
-        env:
-          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
-          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
-        run: |
-          set -euo pipefail
-          mkdir -p ~/private_keys
-          echo "$ASC_PRIVATE_KEY" > ~/private_keys/AuthKey_${ASC_KEY_ID}.p8
-          chmod 600 ~/private_keys/AuthKey_${ASC_KEY_ID}.p8
-
       - name: Generate Xcode project
         working-directory: SafariBrowser
-        env:
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: |
-          sed -i '' "s/DEVELOPMENT_TEAM: \"\"/DEVELOPMENT_TEAM: \"${APPLE_TEAM_ID}\"/" project.yml
-          xcodegen generate
-
-      - name: Prepare ExportOptions.plist
-        working-directory: SafariBrowser
-        env:
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: |
-          sed "s/TEAM_ID_PLACEHOLDER/${APPLE_TEAM_ID}/g" ExportOptions.plist > ExportOptions.ci.plist
+        run: xcodegen generate
 
       - name: Resolve iOS Simulator
         id: sim
@@ -123,97 +53,138 @@ jobs:
 
       - name: Run unit tests
         working-directory: SafariBrowser
-        continue-on-error: true
-        env:
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
+          set -o pipefail
           xcodebuild test \
             -scheme SafariBrowser \
             -destination "${{ steps.sim.outputs.destination }}" \
             -configuration Debug \
-            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
-            CODE_SIGN_STYLE=Automatic \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath ~/private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8 \
-            -authenticationKeyID ${{ secrets.ASC_KEY_ID }} \
-            -authenticationKeyIssuerID ${{ secrets.ASC_ISSUER_ID }}
+            CODE_SIGNING_ALLOWED=NO
 
-      - name: Archive for device (signed)
+  build-ipa:
+    name: Build unsigned IPA
+    needs: test
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app
+
+      - name: Resolve version
         working-directory: SafariBrowser
-        env:
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          set -euo pipefail
-          xcodebuild archive \
+          VERSION="$(awk '/^ *MARKETING_VERSION:/ {print $2; exit}' project.yml)"
+          test -n "$VERSION"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "Building SafariBrowser $VERSION"
+
+      - name: Install XcodeGen
+        run: HOMEBREW_NO_REQUIRE_TAP_TRUST=1 brew install xcodegen
+
+      - name: Generate Xcode project
+        working-directory: SafariBrowser
+        run: xcodegen generate
+
+      - name: Archive unsigned iOS application
+        working-directory: SafariBrowser
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project SafariBrowser.xcodeproj \
             -scheme SafariBrowser \
             -configuration Release \
-            -archivePath "$RUNNER_TEMP/SafariBrowser.xcarchive" \
             -destination 'generic/platform=iOS' \
-            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
-            CODE_SIGN_STYLE=Automatic \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath ~/private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8 \
-            -authenticationKeyID ${{ secrets.ASC_KEY_ID }} \
-            -authenticationKeyIssuerID ${{ secrets.ASC_ISSUER_ID }}
+            -derivedDataPath "$PWD/build" \
+            -archivePath "$PWD/build/SafariBrowser.xcarchive" \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            archive 2>&1 | tee release-build.log
 
-      - name: Export signed IPA
+      - name: Report compiler errors
+        if: failure()
         working-directory: SafariBrowser
+        run: grep -E '(^| )error:' release-build.log | tail -30 || true
+
+      - name: Package unsigned IPA
+        run: |
+          APP_PATH="$PWD/SafariBrowser/build/SafariBrowser.xcarchive/Products/Applications/SafariBrowser.app"
+          test -d "$APP_PATH"
+          mkdir -p artifacts
+          bash ./scripts/package_unsigned_ipa.sh \
+            "$APP_PATH" \
+            "$PWD/artifacts/SafariBrowser-$VERSION-unsigned.ipa"
+          bash ./scripts/package_unsigned_ipa.sh --strip-extensions \
+            "$APP_PATH" \
+            "$PWD/artifacts/SafariBrowser-$VERSION-iphone-unsigned.ipa"
+          ls -la artifacts/
+
+      - name: Publish GitHub pre-release
+        if: github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main')
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          mkdir -p dist
-          xcodebuild -exportArchive \
-            -archivePath "$RUNNER_TEMP/SafariBrowser.xcarchive" \
-            -exportPath dist \
-            -exportOptionsPlist ExportOptions.ci.plist \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath ~/private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8 \
-            -authenticationKeyID ${{ secrets.ASC_KEY_ID }} \
-            -authenticationKeyIssuerID ${{ secrets.ASC_ISSUER_ID }}
-
-          IPA=$(find dist -name '*.ipa' | head -1)
-          if [ -z "$IPA" ]; then
-            echo "::error::IPA not found after export"
-            exit 1
+          retry() {
+            attempt=1
+            until "$@"; do
+              if [ "$attempt" -ge 4 ]; then return 1; fi
+              sleep "$((attempt * 10))"
+              attempt=$((attempt + 1))
+            done
+          }
+          ASSETS=(
+            "$PWD/artifacts/SafariBrowser-$VERSION-iphone-unsigned.ipa"
+            "$PWD/artifacts/SafariBrowser-$VERSION-unsigned.ipa"
+          )
+          if [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
+            TAG="$GITHUB_REF_NAME"
+          else
+            TAG="v$VERSION"
           fi
-          cp "$IPA" dist/SafariBrowser.ipa
-          ls -la dist/
+          NOTES="$(mktemp)"
+          cat > "$NOTES" <<EOF
+          # SafariBrowser $VERSION (pre-release)
 
-      - name: Upload IPA artifact
+          Native iOS browser (iOS 18.4+, Swift 6, WKWebView).
+
+          ## Установка
+
+          IPA **не подписан** в CI — подпись на устройстве вашим Apple ID:
+
+          - **ESign**, **Sideloadly**, **Feather**, **AltStore**
+          - Или Xcode → Devices → Install App
+
+          Файлы:
+          - \`SafariBrowser-$VERSION-iphone-unsigned.ipa\` — без расширений (Share/Widget), проще для sideload
+          - \`SafariBrowser-$VERSION-unsigned.ipa\` — полная сборка с расширениями
+
+          ## Сборка из исходников
+
+          \`\`\`bash
+          cd SafariBrowser && brew install xcodegen && xcodegen generate
+          open SafariBrowser.xcodeproj
+          \`\`\`
+          EOF
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            retry gh release upload "$TAG" "${ASSETS[@]}" --clobber
+            retry gh release edit "$TAG" --title "SafariBrowser $VERSION" --notes-file "$NOTES" --prerelease
+          else
+            retry gh release create "$TAG" "${ASSETS[@]}" \
+              --target "$GITHUB_SHA" \
+              --title "SafariBrowser $VERSION" \
+              --notes-file "$NOTES" \
+              --prerelease
+          fi
+
+      - name: Upload IPA artifacts
+        if: success() || failure()
         uses: actions/upload-artifact@v4
         with:
-          name: SafariBrowser-IPA
-          path: SafariBrowser/dist/SafariBrowser.ipa
+          name: SafariBrowser-${{ env.VERSION }}-unsigned
+          path: |
+            artifacts/SafariBrowser-${{ env.VERSION }}-iphone-unsigned.ipa
+            artifacts/SafariBrowser-${{ env.VERSION }}-unsigned.ipa
           if-no-files-found: error
-
-  release:
-    needs: build-ipa
-    runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Download IPA artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: SafariBrowser-IPA
-          path: dist
-
-      - name: Resolve release tag
-        id: tag
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "name=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "name=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Create GitHub pre-release with signed IPA
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.tag.outputs.name }}
-          prerelease: true
-          generate_release_notes: true
-          files: dist/SafariBrowser.ipa
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          retention-days: 14
