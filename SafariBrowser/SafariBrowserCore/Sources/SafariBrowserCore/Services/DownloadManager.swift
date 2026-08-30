@@ -60,7 +60,7 @@ public final class DownloadManager: NSObject {
 
     public func startDownload(from url: URL, suggestedFilename: String? = nil, isPrivate: Bool = false) {
         let download = BrowserDownload(
-            filename: suggestedFilename ?? url.lastPathComponent.isEmpty ? "download" : url.lastPathComponent,
+            filename: suggestedFilename ?? (url.lastPathComponent.isEmpty ? "download" : url.lastPathComponent),
             url: url,
             isPrivate: isPrivate
         )

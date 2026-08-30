@@ -25,7 +25,7 @@ public final class WebExtensionManager {
                 do {
                     let extensionObj = try await WKWebExtension(resourceBaseURL: url)
                     let context = try await WKWebExtensionContext(for: extensionObj)
-                    try controller.loadExtensionContext(context)
+                    try controller.load(context)
                     names.append(url.deletingPathExtension().lastPathComponent)
                 } catch {
                     continue
