@@ -7,6 +7,8 @@ options:
   groupSortPosition: top
 
 configs:
+  Debug: debug
+  Release: release
   Sideload: release
 
 packages:
