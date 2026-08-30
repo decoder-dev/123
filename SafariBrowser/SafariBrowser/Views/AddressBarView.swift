@@ -4,6 +4,7 @@ struct AddressBarView: View {
     @Binding var text: String
     @Binding var isEditing: Bool
     var onSubmit: () -> Void
+    var onFocus: (() -> Void)?
 
     @FocusState private var isFocused: Bool
 
@@ -21,12 +22,11 @@ struct AddressBarView: View {
                 .onSubmit(onSubmit)
                 .onChange(of: isFocused) { _, focused in
                     isEditing = focused
+                    if focused { onFocus?() }
                 }
 
             if isEditing && !text.isEmpty {
-                Button {
-                    text = ""
-                } label: {
+                Button { text = "" } label: {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundStyle(.secondary)
                 }

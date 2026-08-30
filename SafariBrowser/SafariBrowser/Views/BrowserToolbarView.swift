@@ -4,8 +4,11 @@ import WebKit
 
 struct BrowserToolbarView: View {
     let webViewPool: WebViewPool?
+    var onReaderMode: () -> Void
+
     @Environment(TabManager.self) private var tabManager
     @Environment(\.modelContext) private var modelContext
+    @State private var showShareSheet = false
 
     var body: some View {
         HStack {
@@ -25,8 +28,19 @@ struct BrowserToolbarView: View {
                 Image(systemName: tabManager.selectedTab?.isLoading == true ? "xmark" : "arrow.clockwise")
             }
 
-            Button { share() } label: {
-                Image(systemName: "square.and.arrow.up")
+            Button { onReaderMode() } label: {
+                Image(systemName: "doc.plaintext")
+            }
+
+            if let url = tabManager.selectedTab?.url {
+                ShareLink(item: url) {
+                    Image(systemName: "square.and.arrow.up")
+                }
+            } else {
+                Button { } label: {
+                    Image(systemName: "square.and.arrow.up")
+                }
+                .disabled(true)
             }
 
             Button { addBookmark() } label: {
@@ -69,15 +83,18 @@ struct BrowserToolbarView: View {
         }
     }
 
-    private func share() {
-        guard let url = tabManager.selectedTab?.url else { return }
-        // Share sheet triggered via environment in production; placeholder for URL copy
-        UIPasteboard.general.url = url
-    }
-
     private func addBookmark() {
         guard let tab = tabManager.selectedTab, let url = tab.url else { return }
         let store = BookmarkStore(modelContext: modelContext)
         store.add(title: tab.displayTitle, url: url)
+        HapticService.success()
+        syncBookmarksToCloud(store: store)
+    }
+
+    private func syncBookmarksToCloud(store: BookmarkStore) {
+        let syncable = store.fetchAll().map {
+            SyncableBookmark(id: $0.id, title: $0.title, urlString: $0.urlString, createdAt: $0.createdAt)
+        }
+        CloudSyncService.shared.pushBookmarks(syncable)
     }
 }

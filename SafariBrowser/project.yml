@@ -27,6 +27,8 @@ targets:
       path: SafariBrowser/Info.plist
       properties:
         CFBundleDisplayName: SafariBrowser
+    entitlements:
+      path: SafariBrowser/SafariBrowser.entitlements
     dependencies:
       - package: SafariBrowserCore
     settings:
@@ -36,6 +38,38 @@ targets:
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+
+  SafariBrowserShare:
+    type: app-extension
+    platform: iOS
+    sources:
+      - SafariBrowserShare
+    info:
+      path: SafariBrowserShare/Info.plist
+    entitlements:
+      properties:
+        com.apple.security.application-groups:
+          - group.com.safaribrowser.app
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.safaribrowser.app.share
+        SKIP_INSTALL: YES
+
+  SafariBrowserWidget:
+    type: app-extension
+    platform: iOS
+    sources:
+      - SafariBrowserWidget
+    info:
+      path: SafariBrowserWidget/Info.plist
+    entitlements:
+      properties:
+        com.apple.security.application-groups:
+          - group.com.safaribrowser.app
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.safaribrowser.app.widget
+        SKIP_INSTALL: YES
 
   SafariBrowserCoreTests:
     type: bundle.unit-test
@@ -53,6 +87,8 @@ schemes:
     build:
       targets:
         SafariBrowser: all
+        SafariBrowserShare: all
+        SafariBrowserWidget: all
     run:
       config: Debug
     test:

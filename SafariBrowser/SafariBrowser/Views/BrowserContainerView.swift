@@ -6,45 +6,66 @@ struct BrowserContainerView: View {
     let urlResolver: URLResolver
     @Binding var findInPageVisible: Bool
     @Binding var findQuery: String
+    @Binding var readerArticle: ReaderArticle?
+    var usePager: Bool = true
 
     @Environment(TabManager.self) private var tabManager
+    @Environment(ChromeState.self) private var chromeState
+    @Environment(DownloadManager.self) private var downloadManager
+
     @State private var addressText = ""
     @State private var isEditingAddress = false
-    @State private var toolbarVisible = true
 
     var body: some View {
-        VStack(spacing: 0) {
+        ZStack(alignment: .bottom) {
             if let pool = webViewPool {
-                TabPagerView(webViewPool: pool, urlResolver: urlResolver)
-                    .ignoresSafeArea(edges: .top)
+                TabPagerView(
+                    webViewPool: pool,
+                    urlResolver: urlResolver,
+                    chromeState: chromeState,
+                    downloadManager: downloadManager,
+                    usePager: usePager
+                )
+                .ignoresSafeArea(edges: .top)
+                .scaleEffect(chromeState.isCreatingTab ? 0.95 : 1.0)
+                .opacity(chromeState.isCreatingTab ? 0.8 : 1.0)
+                .animation(.spring(response: 0.35, dampingFraction: 0.8), value: chromeState.isCreatingTab)
             } else {
                 ProgressView("Loading…")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
 
-            if findInPageVisible {
-                FindInPageBar(query: $findQuery, webViewPool: webViewPool)
-            }
-
-            if toolbarVisible {
-                VStack(spacing: 8) {
-                    AddressBarView(
-                        text: $addressText,
-                        isEditing: $isEditingAddress,
-                        onSubmit: { submitAddress() }
-                    )
-                    BrowserToolbarView(webViewPool: webViewPool)
+            VStack(spacing: 0) {
+                if findInPageVisible {
+                    FindInPageBar(query: $findQuery, webViewPool: webViewPool)
                 }
-                .padding(.horizontal, 12)
-                .padding(.bottom, 8)
-                .background(.ultraThinMaterial)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+
+                if chromeState.isToolbarVisible {
+                    VStack(spacing: 8) {
+                        AddressBarView(
+                            text: $addressText,
+                            isEditing: $isEditingAddress,
+                            onSubmit: { submitAddress() },
+                            onFocus: { chromeState.showToolbar() }
+                        )
+                        BrowserToolbarView(
+                            webViewPool: webViewPool,
+                            onReaderMode: { openReaderMode() }
+                        )
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 8)
+                    .background(.ultraThinMaterial)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
             }
         }
-        .onChange(of: tabManager.selectedTabID) { _, _ in
-            syncAddressBar()
-        }
+        .animation(.easeInOut(duration: 0.25), value: chromeState.isToolbarVisible)
+        .onChange(of: tabManager.selectedTabID) { _, _ in syncAddressBar() }
         .onAppear { syncAddressBar() }
+        .sheet(item: $readerArticle) { article in
+            ReaderView(article: article)
+        }
     }
 
     private func syncAddressBar() {
@@ -60,5 +81,18 @@ struct BrowserContainerView: View {
             pool.webView(for: tab).load(URLRequest(url: url))
         }
         addressText = url.absoluteString
+    }
+
+    private func openReaderMode() {
+        guard let pool = webViewPool, let tab = tabManager.selectedTab else { return }
+        let webView = pool.webView(for: tab)
+        webView.evaluateJavaScript(ReaderModeService.extractionScript) { result, _ in
+            Task { @MainActor in
+                if let json = result as? String,
+                   let article = ReaderModeService.parse(json: json, sourceURL: tab.url) {
+                    readerArticle = article
+                }
+            }
+        }
     }
 }

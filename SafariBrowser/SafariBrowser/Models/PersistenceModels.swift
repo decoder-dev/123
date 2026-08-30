@@ -18,6 +18,14 @@ final class Bookmark {
         self.folder = folder
     }
 
+    init(id: UUID, title: String, url: URL, createdAt: Date = Date(), folder: String? = nil) {
+        self.id = id
+        self.title = title
+        self.urlString = url.absoluteString
+        self.createdAt = createdAt
+        self.folder = folder
+    }
+
     var url: URL? { URL(string: urlString) }
 }
 

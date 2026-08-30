@@ -32,6 +32,7 @@ public final class WebViewConfigurationFactory {
         config.userContentController = WKUserContentController()
         contentBlocker.apply(to: config)
         userscriptManager.inject(into: config, for: url)
+        WebExtensionManager.shared.attachToConfiguration(config)
         return config
     }
 }

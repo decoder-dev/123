@@ -32,11 +32,19 @@
     <array>
         <dict>
             <key>CFBundleURLName</key>
-            <string>HTTP</string>
+            <string>HTTP Handler</string>
             <key>CFBundleURLSchemes</key>
             <array>
                 <string>http</string>
                 <string>https</string>
+            </array>
+        </dict>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>SafariBrowser Deep Link</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>safaribrowser</string>
             </array>
         </dict>
     </array>

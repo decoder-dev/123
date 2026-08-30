@@ -1,84 +1,99 @@
 # SafariBrowser
 
-Safari-подобный iOS-браузер на SwiftUI + WKWebView, собранный из лучших паттернов open-source проектов.
+Safari-подобный iOS-браузер на SwiftUI + WKWebView — полная реализация, собранная из лучших паттернов open-source проектов.
 
-## Что внутри
+## Features
 
-| Фича | Источник паттерна |
-|------|-------------------|
-| Bottom toolbar + address bar | amerhukic/Browser (Safari UI) |
-| TabManager + session restore | mozilla-mobile/firefox-ios |
-| Content blocking (WKContentRuleList) | duckduckgo/apple-browsers |
-| SwiftUI + LocalPackage архитектура | Kyome22/Telescopure |
-| Private mode (nonPersistent data store) | OnionBrowser |
-| Userscripts (JS injection) | SlayterDev/RadiumBrowser |
-| WebView pool (no reload on tab switch) | Firefox iOS / factoryfloor |
-
-## Функции Phase 1
-
-- Мультивкладочный браузер с горизонтальным свайпом между вкладками
-- Tab grid overlay (как в Safari)
-- Swipe за последней вкладкой → новая вкладка
-- Bottom address bar с умным URL resolver (поиск / URL / localhost / IPv6)
-- Закладки и история (SwiftData)
-- Content blocking (трекеры и реклама)
-- Private browsing mode
-- Userscripts — добавление, редактирование, match patterns
+### Browsing
+- Multi-tab browser with horizontal swipe between tabs
+- Tab grid overlay with favicon + page preview snapshots
+- Swipe past last tab to create new tab (with animation)
+- Bottom address bar + toolbar (Safari-style)
+- Collapsing toolbar on scroll down
+- Pull-to-refresh
+- Smart URL bar (search / URL / localhost / IPv6)
 - Find in page
-- Session restore между запусками
-- Выбор поисковика (Google, DuckDuckGo, Bing, Yandex)
+- Reader mode
+- Session restore between launches
 
-## Требования
+### Privacy & Security
+- Content blocking (WKContentRuleList — trackers & ads)
+- Private browsing mode (nonPersistent data store)
+- Per-site permissions (camera, mic, location)
+- Clear browsing data
+
+### Data
+- Bookmarks + History (SwiftData)
+- iCloud bookmark sync (NSUbiquitousKeyValueStore)
+- Download manager
+
+### Power User
+- User-editable userscripts (match patterns, document start/end)
+- Web Extensions support (iOS 18+, bundled in `Resources/Extensions/`)
+- Search engine picker (Google, DuckDuckGo, Bing, Yandex)
+
+### Platform
+- Default browser entitlement (http/https handler)
+- Share extension
+- Home screen widget (recent page)
+- Siri Shortcuts / App Intents
+- iPad split view with sidebar tabs
+
+## Architecture
+
+| Source Project | Pattern Used |
+|----------------|-------------|
+| amerhukic/Browser | Safari UI, collapsing toolbar |
+| firefox-ios | TabManager, WebView pool, session restore |
+| duckduckgo/apple-browsers | Content blocking |
+| Telescopure | SwiftUI + LocalPackage |
+| OnionBrowser | Private mode, permissions |
+| RadiumBrowser | Userscripts |
+| pocket-browser | Web Extensions |
+
+## Requirements
 
 - iOS 18.0+
 - Xcode 16+
 - Swift 6.0
+- Apple Developer account (for entitlements: default browser, iCloud, app groups)
 
-## Сборка
-
-### Вариант A: XcodeGen (рекомендуется)
+## Build
 
 ```bash
-brew install xcodegen   # если ещё не установлен
+brew install xcodegen
 cd SafariBrowser
 xcodegen generate
 open SafariBrowser.xcodeproj
 ```
 
-Выбрать iPhone Simulator → Run (⌘R).
+1. Set your **Development Team** in Signing & Capabilities
+2. Select iPhone or iPad Simulator
+3. Run (⌘R)
 
-### Вариант B: Вручную в Xcode
-
-1. File → New → Project → iOS App (SwiftUI, Swift 6)
-2. File → Add Package Dependencies → Add Local → выбрать `SafariBrowserCore/`
-3. Скопировать содержимое `SafariBrowser/` в проект
-4. Добавить `Info.plist` keys из нашего Info.plist
-
-## Структура
+## Project Structure
 
 ```
 SafariBrowser/
-├── SafariBrowserCore/     # SPM — TabManager, WebViewPool, URLResolver, ContentBlocker
-├── SafariBrowser/         # App — Views, SwiftData models, Settings
-├── docs/PLAN.md           # Roadmap (Phase 2–4)
-└── project.yml            # XcodeGen config
+├── SafariBrowserCore/       # SPM — TabManager, WebViewPool, services
+├── SafariBrowser/           # Main app
+├── SafariBrowserShare/      # Share extension
+├── SafariBrowserWidget/     # WidgetKit extension
+├── docs/PLAN.md             # Full roadmap (all phases complete)
+└── project.yml              # XcodeGen
 ```
 
-## Roadmap
-
-См. [docs/PLAN.md](docs/PLAN.md):
-
-- **Phase 2** — collapsing toolbar, favicons, tab previews, pull-to-refresh
-- **Phase 3** — reader mode, share extension, default browser, iCloud sync
-- **Phase 4** — WKWebExtension, iPad split view, widgets
-
-## Тесты
+## Tests
 
 ```bash
-cd SafariBrowserCore
-swift test
+cd SafariBrowserCore && swift test
 ```
 
-## Лицензия
+## Default Browser
+
+After installing on a device:
+**Settings → Apps → Default Browser → SafariBrowser**
+
+## License
 
 MIT
