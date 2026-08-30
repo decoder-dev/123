@@ -2,9 +2,12 @@ name: SafariBrowser
 options:
   bundleIdPrefix: com.safaribrowser
   deploymentTarget:
-    iOS: "18.4"
+    iOS: "18.0"
   createIntermediateGroups: true
   groupSortPosition: top
+
+configs:
+  Sideload: release
 
 packages:
   SafariBrowserCore:
@@ -13,9 +16,8 @@ packages:
 settings:
   base:
     SWIFT_VERSION: "6.0"
-    MARKETING_VERSION: 1.0.0-beta.1
-    CURRENT_PROJECT_VERSION: "2"
-    # Set DEVELOPMENT_TEAM locally or in CI (APPLE_TEAM_ID secret).
+    MARKETING_VERSION: 1.0.0-beta.2
+    CURRENT_PROJECT_VERSION: "3"
     DEVELOPMENT_TEAM: ""
 
 targets:
@@ -39,6 +41,9 @@ targets:
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+      configs:
+        Sideload:
+          CODE_SIGN_ENTITLEMENTS: SafariBrowser/SafariBrowser.sideload.entitlements
 
   SafariBrowserShare:
     type: app-extension
@@ -92,3 +97,5 @@ schemes:
       config: Debug
       targets:
         - SafariBrowserCoreTests
+    archive:
+      config: Sideload

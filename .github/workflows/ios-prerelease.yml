@@ -93,7 +93,7 @@ jobs:
           xcodebuild \
             -project SafariBrowser.xcodeproj \
             -scheme SafariBrowser \
-            -configuration Release \
+            -configuration Sideload \
             -destination 'generic/platform=iOS' \
             -derivedDataPath "$PWD/build" \
             -archivePath "$PWD/build/SafariBrowser.xcarchive" \
@@ -111,6 +111,7 @@ jobs:
         run: |
           APP_PATH="$PWD/SafariBrowser/build/SafariBrowser.xcarchive/Products/Applications/SafariBrowser.app"
           test -d "$APP_PATH"
+          bash ./scripts/prepare_sideload_app.sh "$APP_PATH"
           mkdir -p artifacts
           bash ./scripts/package_unsigned_ipa.sh \
             "$APP_PATH" \
@@ -156,8 +157,12 @@ jobs:
           - **ESign**, **Sideloadly**, **Feather**, **AltStore**
           - Или Xcode → Devices → Install App
 
+          **Важно:** используйте \`SafariBrowser-$VERSION-iphone-unsigned.ipa\` (без Share/Widget) — он проще ставится через sideload.
+
+          Требования: **iOS 18.0+**
+
           Файлы:
-          - \`SafariBrowser-$VERSION-iphone-unsigned.ipa\` — без расширений (Share/Widget), проще для sideload
+          - \`SafariBrowser-$VERSION-iphone-unsigned.ipa\` — рекомендуется для sideload
           - \`SafariBrowser-$VERSION-unsigned.ipa\` — полная сборка с расширениями
 
           ## Сборка из исходников
