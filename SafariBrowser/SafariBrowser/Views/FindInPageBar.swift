@@ -17,6 +17,7 @@ struct FindInPageBar: View {
                 .focused($isFocused)
                 .onSubmit { findNext() }
                 .onChange(of: query) { _, newValue in
+                    updateMatchCount(for: newValue)
                     find(query: newValue, backwards: false)
                 }
 
@@ -37,8 +38,7 @@ struct FindInPageBar: View {
             .accessibilityLabel("Next match")
 
             Button {
-                isVisible = false
-                query = ""
+                close()
             } label: {
                 Image(systemName: "xmark")
             }
@@ -48,6 +48,9 @@ struct FindInPageBar: View {
         .padding(.vertical, 8)
         .background(.ultraThinMaterial)
         .onAppear { isFocused = true }
+        .onChange(of: isVisible) { _, visible in
+            if !visible { clearHighlights() }
+        }
     }
 
     private func webView() -> WKWebView? {
@@ -55,15 +58,45 @@ struct FindInPageBar: View {
         return pool.webView(for: tab)
     }
 
+    private func close() {
+        clearHighlights()
+        query = ""
+        matchCount = 0
+        isVisible = false
+    }
+
+    private func clearHighlights() {
+        webView()?.find("", configuration: WKFindConfiguration()) { _ in }
+    }
+
+    private func updateMatchCount(for query: String) {
+        guard !query.isEmpty, let webView = webView() else {
+            matchCount = 0
+            return
+        }
+        let escaped = query
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "'", with: "\\'")
+        let script = """
+        (function(q) {
+            if (!q) return 0;
+            var text = document.body ? document.body.innerText : '';
+            var re = new RegExp(q.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&'), 'gi');
+            return (text.match(re) || []).length;
+        })('\(escaped)');
+        """
+        webView.evaluateJavaScript(script) { result, _ in
+            Task { @MainActor in
+                matchCount = (result as? Int) ?? 0
+            }
+        }
+    }
+
     private func find(query: String, backwards: Bool) {
         guard !query.isEmpty, let webView = webView() else { return }
         let config = WKFindConfiguration()
         config.backwards = backwards
-        webView.find(query, configuration: config) { result in
-            Task { @MainActor in
-                matchCount = result.matchFound ? max(1, matchCount) : 0
-            }
-        }
+        webView.find(query, configuration: config) { _ in }
     }
 
     private func findNext() {

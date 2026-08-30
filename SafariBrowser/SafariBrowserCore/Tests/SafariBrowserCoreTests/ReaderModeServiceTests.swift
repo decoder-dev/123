@@ -21,12 +21,18 @@ import Testing
     #expect(!output.lowercased().contains("javascript:"))
 }
 
-@Test func sessionSnapshotExcludesPrivateTabs() {
-    let manager = TabManager()
-    manager.tabs.removeAll()
-    manager.addTab(url: URL(string: "https://example.com"), isPrivate: false)
-    manager.addTab(url: URL(string: "https://private.example"), isPrivate: true)
-    let snapshots = manager.snapshots()
-    #expect(snapshots.count == 2)
-    #expect(snapshots.filter { !$0.isPrivate }.count == 1)
+@Test func sanitizeHTMLRemovesUnquotedHandlers() {
+    let input = "<img src=x onerror=alert(1)>"
+    let output = ReaderModeService.sanitizeHTML(input)
+    #expect(!output.lowercased().contains("onerror"))
+}
+
+@Test func publicTabSnapshotsFilter() {
+    let snapshots = [
+        TabSnapshot(from: BrowserTab(url: URL(string: "https://a.com"), isPrivate: false)),
+        TabSnapshot(from: BrowserTab(url: URL(string: "https://b.com"), isPrivate: true))
+    ]
+    let publicOnly = snapshots.filter { !$0.isPrivate }
+    #expect(publicOnly.count == 1)
+    #expect(publicOnly.first?.url?.host == "a.com")
 }

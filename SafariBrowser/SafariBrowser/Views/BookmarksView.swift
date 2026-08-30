@@ -1,4 +1,5 @@
 import SwiftUI
+import SafariBrowserCore
 
 struct BookmarksView: View {
     @Environment(\.modelContext) private var modelContext
@@ -48,5 +49,14 @@ struct BookmarksView: View {
             store.remove(bookmarks[index])
         }
         reload()
+        pushBookmarksToCloud()
+    }
+
+    private func pushBookmarksToCloud() {
+        let store = BookmarkStore(modelContext: modelContext)
+        let syncable = store.fetchAll().map {
+            SyncableBookmark(id: $0.id, title: $0.title, urlString: $0.urlString, createdAt: $0.createdAt)
+        }
+        CloudSyncService.shared.pushBookmarks(syncable)
     }
 }

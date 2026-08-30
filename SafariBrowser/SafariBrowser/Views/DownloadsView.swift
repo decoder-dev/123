@@ -51,11 +51,10 @@ struct DownloadRow: View {
                     .lineLimit(1)
                 if !download.isComplete {
                     ProgressView(value: download.progress)
-                } else if let path = download.localPath {
-                    Text(path)
+                } else if download.isPrivate {
+                    Text("Private download")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
-                        .lineLimit(1)
                 }
             }
         }

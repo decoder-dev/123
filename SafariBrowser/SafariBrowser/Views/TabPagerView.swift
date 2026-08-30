@@ -1,6 +1,7 @@
 import SwiftUI
 import SafariBrowserCore
 import SwiftData
+import WidgetKit
 
 struct TabPagerView: View {
     let webViewPool: WebViewPool
@@ -79,5 +80,6 @@ struct TabPagerView: View {
         let defaults = UserDefaults(suiteName: "group.com.safaribrowser.app")
         defaults?.set(title.isEmpty ? url.host ?? "Page" : title, forKey: "widget.lastTitle")
         defaults?.set(url.absoluteString, forKey: "widget.lastURL")
+        WidgetCenter.shared.reloadAllTimelines()
     }
 }

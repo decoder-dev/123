@@ -54,7 +54,7 @@ struct BrowserRootView: View {
                 )
             }
 
-            if tabManager.isTabGridVisible, sizeClass != .regular {
+            if tabManager.isTabGridVisible {
                 TabGridView(webViewPool: webViewPool)
                     .transition(.opacity.combined(with: .scale(scale: 0.95)))
                     .zIndex(1)
@@ -79,8 +79,11 @@ struct BrowserRootView: View {
             ContentBlockerService.shared.setEnabled(enabled)
             webViewPool?.reloadAllConfigurations(for: tabManager.tabs)
         }
-        .onChange(of: tabManager.isPrivateMode) { _, _ in
+        .onChange(of: tabManager.isPrivateMode) { _, isPrivate in
             webViewPool?.clearAll()
+            if isPrivate {
+                BrowsingDataClearer.clearWidgetData()
+            }
         }
         .onOpenURL { url in handleIncomingURL(url) }
     }

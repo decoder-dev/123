@@ -171,7 +171,11 @@ struct BrowserWebView: UIViewRepresentable {
             navigationAction: WKNavigationAction,
             didBecome download: WKDownload
         ) {
-            downloadManager?.handleWKDownload(download, originalURL: navigationAction.request.url ?? tab.url ?? URL(string: "about:blank")!)
+            downloadManager?.handleWKDownload(
+                download,
+                originalURL: navigationAction.request.url ?? tab.url ?? URL(string: "about:blank")!,
+                isPrivate: tab.isPrivate
+            )
         }
 
         func webView(

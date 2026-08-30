@@ -42,7 +42,9 @@ struct BrowserToolbarView: View {
             }
             .accessibilityLabel("Reader mode")
 
-            if let url = tabManager.selectedTab?.url {
+            if let url = tabManager.selectedTab?.url,
+               tabManager.selectedTab?.isPrivate != true,
+               !tabManager.isPrivateMode {
                 ShareLink(item: url) {
                     Image(systemName: "square.and.arrow.up")
                 }

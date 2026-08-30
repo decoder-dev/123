@@ -91,7 +91,10 @@ struct BrowserContainerView: View {
         .onChange(of: tabManager.selectedTabID) { _, _ in syncAddressBar() }
         .onAppear { syncAddressBar() }
         .sheet(item: $readerArticle) { article in
-            ReaderView(article: article)
+            ReaderView(
+                article: article,
+                isPrivate: tabManager.selectedTab?.isPrivate == true || tabManager.isPrivateMode
+            )
         }
     }
 

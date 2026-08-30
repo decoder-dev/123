@@ -45,6 +45,7 @@ struct SafariBrowserApp: App {
     }
 
     private func clearPrivateData() {
+        // modelContext not available here; WebKit + app group only on background exit
         let types = WKWebsiteDataStore.allWebsiteDataTypes()
         WKWebsiteDataStore.default().fetchDataRecords(ofTypes: types) { records in
             WKWebsiteDataStore.default().removeData(ofTypes: types, for: records) {}
@@ -52,10 +53,6 @@ struct SafariBrowserApp: App {
         WKWebsiteDataStore.nonPersistent().fetchDataRecords(ofTypes: types) { records in
             WKWebsiteDataStore.nonPersistent().removeData(ofTypes: types, for: records) {}
         }
-        if let defaults = UserDefaults(suiteName: "group.com.safaribrowser.app") {
-            defaults.removeObject(forKey: "widget.lastTitle")
-            defaults.removeObject(forKey: "widget.lastURL")
-            defaults.removeObject(forKey: "pendingShareURL")
-        }
+        BrowsingDataClearer.clearAppGroupData()
     }
 }

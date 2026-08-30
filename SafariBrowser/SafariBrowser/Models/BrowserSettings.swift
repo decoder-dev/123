@@ -52,10 +52,20 @@ final class SessionStore {
 
     func restore(into manager: TabManager) {
         guard let data = UserDefaults.standard.data(forKey: tabsKey),
-              let snapshots = try? JSONDecoder().decode([TabSnapshot].self, from: data),
-              !snapshots.isEmpty else { return }
+              let snapshots = try? JSONDecoder().decode([TabSnapshot].self, from: data) else { return }
+        let publicSnapshots = snapshots.filter { !$0.isPrivate }
+        guard !publicSnapshots.isEmpty else {
+            clear()
+            return
+        }
         let selectedID = UserDefaults.standard.string(forKey: selectedKey).flatMap(UUID.init)
-        manager.restore(from: snapshots, selectedID: selectedID)
+        let validSelected = selectedID.flatMap { id in publicSnapshots.contains(where: { $0.id == id }) ? id : nil }
+        manager.restore(from: publicSnapshots, selectedID: validSelected)
+    }
+
+    func clear() {
+        UserDefaults.standard.removeObject(forKey: tabsKey)
+        UserDefaults.standard.removeObject(forKey: selectedKey)
     }
 }
 

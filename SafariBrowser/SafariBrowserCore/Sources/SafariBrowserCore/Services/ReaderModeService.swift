@@ -64,9 +64,15 @@ public enum ReaderModeService {
             "<object[^>]*>[\\s\\S]*?</object>",
             "<embed[^>]*>",
             "<form[^>]*>[\\s\\S]*?</form>",
+            "<style[^>]*>[\\s\\S]*?</style>",
+            "<link[^>]*>",
+            "<meta[^>]*http-equiv[^>]*refresh[^>]*>",
+            "<base[^>]*>",
             "on\\w+\\s*=\\s*\"[^\"]*\"",
             "on\\w+\\s*=\\s*'[^']*'",
-            "javascript:"
+            "on\\w+\\s*=\\s*[^\\s>]+",
+            "javascript:",
+            "data:text/html"
         ]
         for pattern in dangerousPatterns {
             sanitized = sanitized.replacingOccurrences(

@@ -1,11 +1,16 @@
 import SwiftUI
 import SafariBrowserCore
+import SwiftData
 import WebKit
 
 struct SettingsView: View {
     @Environment(BrowserSettings.self) private var settings
     @Environment(TabManager.self) private var tabManager
+    @Environment(DownloadManager.self) private var downloadManager
+    @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
+
+    private let sessionStore = SessionStore()
 
     var body: some View {
         @Bindable var settings = settings
@@ -31,7 +36,11 @@ struct SettingsView: View {
                 Section("Browsing") {
                     Toggle("Private Mode", isOn: Binding(
                         get: { tabManager.isPrivateMode },
-                        set: { _ in tabManager.togglePrivateMode() }
+                        set: { newValue in
+                            if newValue != tabManager.isPrivateMode {
+                                tabManager.togglePrivateMode()
+                            }
+                        }
                     ))
                 }
 
@@ -61,7 +70,7 @@ struct SettingsView: View {
                 }
 
                 Section("About") {
-                    LabeledContent("Version", value: "1.0.0")
+                    LabeledContent("Version", value: "1.0.0-beta.1")
                     LabeledContent("Engine", value: "WebKit (WKWebView)")
                 }
             }
@@ -75,10 +84,11 @@ struct SettingsView: View {
     }
 
     private func clearBrowsingData() {
-        let dataStore = WKWebsiteDataStore.default()
-        let types = WKWebsiteDataStore.allWebsiteDataTypes()
-        dataStore.fetchDataRecords(ofTypes: types) { records in
-            dataStore.removeData(ofTypes: types, for: records) {}
-        }
+        BrowsingDataClearer.clearAll(
+            downloadManager: downloadManager,
+            sessionStore: sessionStore,
+            tabManager: tabManager,
+            modelContext: modelContext
+        )
     }
 }

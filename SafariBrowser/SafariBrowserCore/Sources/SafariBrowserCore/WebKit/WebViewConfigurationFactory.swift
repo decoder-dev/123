@@ -31,8 +31,10 @@ public final class WebViewConfigurationFactory {
         config.websiteDataStore = isPrivate ? .nonPersistent() : .default()
         config.userContentController = WKUserContentController()
         contentBlocker.apply(to: config)
-        userscriptManager.inject(into: config, for: url)
-        WebExtensionManager.shared.attachToConfiguration(config)
+        if !isPrivate {
+            userscriptManager.inject(into: config, for: url)
+            WebExtensionManager.shared.attachToConfiguration(config)
+        }
         return config
     }
 }
