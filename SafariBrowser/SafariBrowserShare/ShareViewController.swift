@@ -56,7 +56,9 @@ class ShareViewController: UIViewController {
             return
         }
         extensionContext?.open(openURL) { [weak self] _ in
-            self?.finish()
+            Task { @MainActor in
+                self?.finish()
+            }
         }
     }
 
