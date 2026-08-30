@@ -53,7 +53,8 @@ struct SafariBrowserShortcuts: AppShortcutsProvider {
         AppShortcut(
             intent: OpenURLIntent(),
             phrases: [
-                "Browse \(\.$url) in \(.applicationName)",
+                "Open URL in \(.applicationName)",
+                "Browse with \(.applicationName)",
             ],
             shortTitle: "Open URL",
             systemImageName: "globe"
