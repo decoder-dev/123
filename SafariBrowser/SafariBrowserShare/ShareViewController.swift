@@ -1,13 +1,14 @@
 import UIKit
 import UniformTypeIdentifiers
 
-class ShareViewController: UIViewController {
+@MainActor
+final class ShareViewController: UIViewController {
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        processSharedItems()
+        Task { await processSharedItems() }
     }
 
-    private func processSharedItems() {
+    private func processSharedItems() async {
         guard let item = extensionContext?.inputItems.first as? NSExtensionItem,
               let attachments = item.attachments else {
             finish()
@@ -16,35 +17,49 @@ class ShareViewController: UIViewController {
 
         for provider in attachments {
             if provider.hasItemConformingToTypeIdentifier(UTType.url.identifier) {
-                provider.loadItem(forTypeIdentifier: UTType.url.identifier) { [weak self] item, _ in
-                    DispatchQueue.main.async {
-                        if let url = item as? URL {
-                            self?.saveAndOpen(url)
-                        } else if let urlString = item as? String, let url = URL(string: urlString) {
-                            self?.saveAndOpen(url)
-                        } else {
-                            self?.finish()
-                        }
-                    }
+                let loaded = await loadURL(from: provider)
+                if let url = loaded {
+                    saveAndOpen(url)
+                } else {
+                    finish()
                 }
                 return
             }
             if provider.hasItemConformingToTypeIdentifier(UTType.plainText.identifier) {
-                provider.loadItem(forTypeIdentifier: UTType.plainText.identifier) { [weak self] item, _ in
-                    DispatchQueue.main.async {
-                        if let text = item as? String,
-                           let url = URL(string: text.trimmingCharacters(in: .whitespacesAndNewlines)),
-                           url.scheme?.hasPrefix("http") == true {
-                            self?.saveAndOpen(url)
-                        } else {
-                            self?.finish()
-                        }
-                    }
+                let loaded = await loadText(from: provider)
+                if let text = loaded,
+                   let url = URL(string: text.trimmingCharacters(in: .whitespacesAndNewlines)),
+                   url.scheme?.hasPrefix("http") == true {
+                    saveAndOpen(url)
+                } else {
+                    finish()
                 }
                 return
             }
         }
         finish()
+    }
+
+    private func loadURL(from provider: NSItemProvider) async -> URL? {
+        await withCheckedContinuation { continuation in
+            provider.loadItem(forTypeIdentifier: UTType.url.identifier) { item, _ in
+                if let url = item as? URL {
+                    continuation.resume(returning: url)
+                } else if let urlString = item as? String, let url = URL(string: urlString) {
+                    continuation.resume(returning: url)
+                } else {
+                    continuation.resume(returning: nil)
+                }
+            }
+        }
+    }
+
+    private func loadText(from provider: NSItemProvider) async -> String? {
+        await withCheckedContinuation { continuation in
+            provider.loadItem(forTypeIdentifier: UTType.plainText.identifier) { item, _ in
+                continuation.resume(returning: item as? String)
+            }
+        }
     }
 
     private func saveAndOpen(_ url: URL) {
