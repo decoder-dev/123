@@ -26,13 +26,33 @@ jobs:
         working-directory: SafariBrowser
         run: xcodegen generate
 
+      - name: Resolve iOS Simulator
+        id: sim
+        run: |
+          DEST=$(python3 <<'PY'
+          import json, subprocess, sys
+          out = subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "-j"], text=True)
+          data = json.loads(out)
+          for runtime in sorted(data.get("devices", {}), reverse=True):
+              if "iOS" not in runtime:
+                  continue
+              for d in data["devices"][runtime]:
+                  if d.get("isAvailable") and "iPhone" in d.get("name", ""):
+                      print(f"platform=iOS Simulator,id={d['udid']}")
+                      sys.exit(0)
+          sys.exit(1)
+          PY
+          )
+          echo "destination=$DEST" >> "$GITHUB_OUTPUT"
+          echo "Using simulator: $DEST"
+
       - name: Run unit tests
         working-directory: SafariBrowser
         run: |
           set -o pipefail
           xcodebuild test \
             -scheme SafariBrowser \
-            -destination 'generic/platform=iOS Simulator' \
+            -destination "${{ steps.sim.outputs.destination }}" \
             -configuration Debug \
             CODE_SIGNING_ALLOWED=NO
 
@@ -42,7 +62,7 @@ jobs:
           set -o pipefail
           xcodebuild build \
             -scheme SafariBrowser \
-            -destination 'generic/platform=iOS Simulator' \
+            -destination "${{ steps.sim.outputs.destination }}" \
             -configuration Release \
             -derivedDataPath build/DerivedData \
             CODE_SIGNING_ALLOWED=NO
