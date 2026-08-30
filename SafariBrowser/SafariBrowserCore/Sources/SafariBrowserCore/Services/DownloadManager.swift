@@ -216,7 +216,11 @@ public final class DownloadManager: NSObject {
 }
 
 extension DownloadManager: WKDownloadDelegate {
-    public func download(_ download: WKDownload, decideDestinationUsing response: URLResponse, suggestedFilename: String, completionHandler: @escaping (URL?) -> Void) {
+    public func download(
+        _ download: WKDownload,
+        decideDestinationUsing response: URLResponse,
+        suggestedFilename: String
+    ) async -> URL? {
         let isPrivate: Bool
         if let entryID = activeDownloads[ObjectIdentifier(download)], let loc = index(of: entryID) {
             isPrivate = loc.array == "private"
@@ -224,8 +228,7 @@ extension DownloadManager: WKDownloadDelegate {
         } else {
             isPrivate = false
         }
-        let dest = downloadsDirectory(isPrivate: isPrivate).appendingPathComponent(suggestedFilename)
-        completionHandler(dest)
+        return downloadsDirectory(isPrivate: isPrivate).appendingPathComponent(suggestedFilename)
     }
 
     public func downloadDidFinish(_ download: WKDownload) {

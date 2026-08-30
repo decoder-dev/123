@@ -2,7 +2,7 @@ name: SafariBrowser
 options:
   bundleIdPrefix: com.safaribrowser
   deploymentTarget:
-    iOS: "18.0"
+    iOS: "18.4"
   createIntermediateGroups: true
   groupSortPosition: top
 

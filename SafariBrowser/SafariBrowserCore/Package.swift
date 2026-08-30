@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "SafariBrowserCore",
-    platforms: [.iOS(.v18)],
+    platforms: [.iOS(.v18_4)],
     products: [
         .library(name: "SafariBrowserCore", targets: ["SafariBrowserCore"]),
     ],

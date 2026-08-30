@@ -7,13 +7,13 @@ public final class WebExtensionManager {
     public private(set) var isLoaded = false
     public private(set) var loadedExtensionNames: [String] = []
 
-    private var controller: WKWebExtensionController?
+    private var controller: Any?
 
     private init() {}
 
     /// Loads bundled .webextension resources from the app bundle's Extensions/ folder.
     public func loadBundledExtensions() async {
-        guard #available(iOS 18.0, *) else { return }
+        guard #available(iOS 18.4, *) else { return }
         guard let extensionsURL = Bundle.main.resourceURL?.appendingPathComponent("Extensions") else { return }
         guard FileManager.default.fileExists(atPath: extensionsURL.path) else { return }
 
@@ -39,7 +39,8 @@ public final class WebExtensionManager {
     }
 
     public func attachToConfiguration(_ configuration: WKWebViewConfiguration) {
-        guard #available(iOS 18.0, *), let controller else { return }
+        guard #available(iOS 18.4, *),
+              let controller = controller as? WKWebExtensionController else { return }
         configuration.webExtensionController = controller
     }
 }
