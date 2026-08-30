@@ -16,7 +16,7 @@ import SafariBrowserCore
     chrome.handleScroll(offsetY: 100)
     chrome.isToolbarVisible = false
     chrome.handleScroll(offsetY: 90)
-    chrome.handleScroll(offsetY: 70)
+    chrome.handleScroll(offsetY: 65)
     #expect(chrome.isToolbarVisible == true)
 }
 
