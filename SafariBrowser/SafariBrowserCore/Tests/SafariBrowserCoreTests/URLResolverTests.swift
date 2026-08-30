@@ -21,12 +21,14 @@ import Testing
     #expect(url.absoluteString.contains("duckduckgo.com"))
 }
 
+@MainActor
 @Test func tabManagerStartsWithOneTab() {
     let manager = TabManager()
     #expect(manager.tabs.count == 1)
     #expect(manager.selectedTab != nil)
 }
 
+@MainActor
 @Test func tabManagerCloseLastCreatesNew() {
     let manager = TabManager()
     let tab = manager.tabs[0]
@@ -34,6 +36,7 @@ import Testing
     #expect(manager.tabs.count == 1)
 }
 
+@MainActor
 @Test func tabSnapshotsRoundTrip() {
     let manager = TabManager()
     manager.selectedTab?.url = URL(string: "https://apple.com")

@@ -28,7 +28,7 @@ if ! command -v zip >/dev/null 2>&1; then
   exit 4
 fi
 
-work_dir="$(mntemp_dir="$(mktemp -d)"; echo "$mntemp_dir")"
+work_dir="$(mktemp -d)"
 trap 'rm -rf "$work_dir"' EXIT
 
 mkdir -p "$work_dir/Payload"

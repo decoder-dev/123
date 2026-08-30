@@ -1,6 +1,8 @@
+import Foundation
 import Testing
 import SafariBrowserCore
 
+@MainActor
 @Test func chromeStateCollapsesOnScrollDown() {
     let chrome = ChromeState()
     chrome.handleScroll(offsetY: 0)
@@ -8,6 +10,7 @@ import SafariBrowserCore
     #expect(chrome.isToolbarVisible == false)
 }
 
+@MainActor
 @Test func chromeStateExpandsOnScrollUp() {
     let chrome = ChromeState()
     chrome.handleScroll(offsetY: 100)
@@ -24,6 +27,7 @@ import SafariBrowserCore
     #expect(article?.contentHTML.contains("Hello") == true)
 }
 
+@MainActor
 @Test func sitePermissionStoreRoundTrip() {
     SitePermissionStore.shared.setDecision(.allow, host: "example.com", type: .camera)
     #expect(SitePermissionStore.shared.decision(for: "example.com", type: .camera) == .allow)
