@@ -20,7 +20,7 @@ jobs:
         run: sudo xcode-select -s /Applications/Xcode.app
 
       - name: Install XcodeGen
-        run: brew install xcodegen
+        run: HOMEBREW_NO_REQUIRE_TAP_TRUST=1 brew install xcodegen
 
       - name: Generate Xcode project
         working-directory: SafariBrowser
@@ -32,7 +32,7 @@ jobs:
           set -o pipefail
           xcodebuild test \
             -scheme SafariBrowser \
-            -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
+            -destination 'generic/platform=iOS Simulator' \
             -configuration Debug \
             CODE_SIGNING_ALLOWED=NO
 
@@ -42,7 +42,7 @@ jobs:
           set -o pipefail
           xcodebuild build \
             -scheme SafariBrowser \
-            -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
+            -destination 'generic/platform=iOS Simulator' \
             -configuration Release \
             -derivedDataPath build/DerivedData \
             CODE_SIGNING_ALLOWED=NO

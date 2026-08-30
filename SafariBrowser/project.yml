@@ -47,9 +47,7 @@ targets:
     info:
       path: SafariBrowserShare/Info.plist
     entitlements:
-      properties:
-        com.apple.security.application-groups:
-          - group.com.safaribrowser.app
+      path: SafariBrowserShare/SafariBrowserShare.entitlements
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.safaribrowser.app.share
@@ -63,9 +61,7 @@ targets:
     info:
       path: SafariBrowserWidget/Info.plist
     entitlements:
-      properties:
-        com.apple.security.application-groups:
-          - group.com.safaribrowser.app
+      path: SafariBrowserWidget/SafariBrowserWidget.entitlements
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.safaribrowser.app.widget
