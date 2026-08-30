@@ -22,7 +22,7 @@ struct SafariBrowserApp: App {
                 .environment(chromeState)
                 .environment(downloadManager)
                 .task {
-                    await ContentBlockerService.shared.compileRules()
+                    try? await ContentBlockerService.shared.compileRules()
                     ContentBlockerService.shared.setEnabled(settings.blockTrackers)
                     sessionStore.restore(into: tabManager)
                 }
