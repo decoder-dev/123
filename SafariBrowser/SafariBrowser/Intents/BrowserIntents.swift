@@ -30,7 +30,10 @@ struct NewTabIntent: AppIntent {
 
     func perform() async throws -> some IntentResult {
         if let defaults = UserDefaults(suiteName: "group.com.safaribrowser.app") {
-            defaults.set(url.absoluteString, forKey: "pendingShareURL")
+            defaults.set(true, forKey: "pendingNewTab")
+            if url.absoluteString != "about:blank" {
+                defaults.set(url.absoluteString, forKey: "pendingShareURL")
+            }
         }
         return .result()
     }

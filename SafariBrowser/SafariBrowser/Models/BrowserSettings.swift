@@ -34,12 +34,19 @@ final class SessionStore {
     private let selectedKey = "session.selectedTab"
 
     func save(_ manager: TabManager) {
-        let snapshots = manager.snapshots()
+        let snapshots = manager.snapshots().filter { !$0.isPrivate }
+        guard !snapshots.isEmpty else {
+            UserDefaults.standard.removeObject(forKey: tabsKey)
+            UserDefaults.standard.removeObject(forKey: selectedKey)
+            return
+        }
         if let data = try? JSONEncoder().encode(snapshots) {
             UserDefaults.standard.set(data, forKey: tabsKey)
         }
-        if let id = manager.selectedTabID {
+        if let id = manager.selectedTabID, snapshots.contains(where: { $0.id == id }) {
             UserDefaults.standard.set(id.uuidString, forKey: selectedKey)
+        } else if let first = snapshots.first?.id {
+            UserDefaults.standard.set(first.uuidString, forKey: selectedKey)
         }
     }
 

@@ -29,14 +29,33 @@ public final class WebViewPool {
     }
 
     public func removeWebView(for tabID: UUID) {
-        cache.removeValue(forKey: tabID)
+        guard let webView = cache.removeValue(forKey: tabID) else { return }
+        teardown(webView)
     }
 
     public func clearAll() {
-        cache.removeAll()
+        let ids = Array(cache.keys)
+        ids.forEach { removeWebView(for: $0) }
+    }
+
+    public func reloadAllConfigurations(for tabs: [BrowserTab]) {
+        for tab in tabs {
+            if cache[tab.id] != nil {
+                removeWebView(for: tab.id)
+                _ = webView(for: tab)
+            }
+        }
     }
 
     public func contains(_ tabID: UUID) -> Bool {
         cache[tabID] != nil
+    }
+
+    private func teardown(_ webView: WKWebView) {
+        webView.stopLoading()
+        webView.navigationDelegate = nil
+        webView.uiDelegate = nil
+        webView.scrollView.delegate = nil
+        webView.configuration.userContentController.removeAllUserScripts()
     }
 }

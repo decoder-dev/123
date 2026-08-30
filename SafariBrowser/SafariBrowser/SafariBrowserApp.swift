@@ -45,10 +45,17 @@ struct SafariBrowserApp: App {
     }
 
     private func clearPrivateData() {
-        let store = WKWebsiteDataStore.default()
         let types = WKWebsiteDataStore.allWebsiteDataTypes()
-        store.fetchDataRecords(ofTypes: types) { records in
-            store.removeData(ofTypes: types, for: records) {}
+        WKWebsiteDataStore.default().fetchDataRecords(ofTypes: types) { records in
+            WKWebsiteDataStore.default().removeData(ofTypes: types, for: records) {}
+        }
+        WKWebsiteDataStore.nonPersistent().fetchDataRecords(ofTypes: types) { records in
+            WKWebsiteDataStore.nonPersistent().removeData(ofTypes: types, for: records) {}
+        }
+        if let defaults = UserDefaults(suiteName: "group.com.safaribrowser.app") {
+            defaults.removeObject(forKey: "widget.lastTitle")
+            defaults.removeObject(forKey: "widget.lastURL")
+            defaults.removeObject(forKey: "pendingShareURL")
         }
     }
 }

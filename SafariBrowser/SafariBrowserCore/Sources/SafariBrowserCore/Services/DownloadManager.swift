@@ -27,6 +27,7 @@ public struct BrowserDownload: Identifiable, Codable, Sendable {
 public final class DownloadManager: NSObject {
     public private(set) var downloads: [BrowserDownload] = []
     private var activeDownloads: [ObjectIdentifier: UUID] = [:]
+    private var progressObservations: [ObjectIdentifier: NSKeyValueObservation] = [:]
     private let storageKey = "browser.downloads"
 
     public override init() {
@@ -47,9 +48,27 @@ public final class DownloadManager: NSObject {
     public func handleWKDownload(_ wkDownload: WKDownload, originalURL: URL) {
         let download = BrowserDownload(filename: originalURL.lastPathComponent, url: originalURL)
         downloads.insert(download, at: 0)
-        activeDownloads[ObjectIdentifier(wkDownload)] = download.id
+        let key = ObjectIdentifier(wkDownload)
+        activeDownloads[key] = download.id
         wkDownload.delegate = self
+        progressObservations[key] = wkDownload.progress.observe(\.fractionCompleted) { [weak self] progress, _ in
+            Task { @MainActor in
+                self?.updateWKProgress(for: wkDownload, fraction: progress.fractionCompleted)
+            }
+        }
         save()
+    }
+
+    private func updateWKProgress(for wkDownload: WKDownload, fraction: Double) {
+        guard let entryID = activeDownloads[ObjectIdentifier(wkDownload)],
+              let index = downloads.firstIndex(where: { $0.id == entryID }) else { return }
+        downloads[index].progress = fraction
+    }
+
+    private func cleanupWKDownload(_ wkDownload: WKDownload) {
+        let key = ObjectIdentifier(wkDownload)
+        progressObservations.removeValue(forKey: key)?.invalidate()
+        activeDownloads.removeValue(forKey: key)
     }
 
     public func remove(_ download: BrowserDownload) {
@@ -132,7 +151,7 @@ extension DownloadManager: WKDownloadDelegate {
             save()
             HapticService.success()
         }
-        activeDownloads.removeValue(forKey: ObjectIdentifier(download))
+        cleanupWKDownload(download)
     }
 
     public func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
@@ -140,6 +159,6 @@ extension DownloadManager: WKDownloadDelegate {
             downloads.removeAll { $0.id == entryID }
             save()
         }
-        activeDownloads.removeValue(forKey: ObjectIdentifier(download))
+        cleanupWKDownload(download)
     }
 }

@@ -49,9 +49,32 @@ public enum ReaderModeService {
               let content = dict["contentHTML"], !content.isEmpty else { return nil }
         return ReaderArticle(
             title: dict["title"] ?? "Article",
-            contentHTML: content,
+            contentHTML: sanitizeHTML(content),
             byline: dict["byline"],
             sourceURL: sourceURL
         )
+    }
+
+    /// Strip dangerous tags and inline handlers before rendering reader HTML.
+    public static func sanitizeHTML(_ html: String) -> String {
+        var sanitized = html
+        let dangerousPatterns = [
+            "<script[^>]*>[\\s\\S]*?</script>",
+            "<iframe[^>]*>[\\s\\S]*?</iframe>",
+            "<object[^>]*>[\\s\\S]*?</object>",
+            "<embed[^>]*>",
+            "<form[^>]*>[\\s\\S]*?</form>",
+            "on\\w+\\s*=\\s*\"[^\"]*\"",
+            "on\\w+\\s*=\\s*'[^']*'",
+            "javascript:"
+        ]
+        for pattern in dangerousPatterns {
+            sanitized = sanitized.replacingOccurrences(
+                of: pattern,
+                with: "",
+                options: [.regularExpression, .caseInsensitive]
+            )
+        }
+        return sanitized
     }
 }

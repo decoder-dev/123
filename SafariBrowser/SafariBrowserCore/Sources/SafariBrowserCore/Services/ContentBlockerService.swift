@@ -28,20 +28,22 @@ public final class ContentBlockerService {
         isEnabled = enabled
     }
 
-    /// Default tracker and ad blocking rules.
+    /// Default tracker and ad blocking rules. if-domain uses WKContentRuleList subdomain prefix form.
     private static let defaultRulesJSON = """
     [
       {
         "trigger": {
           "url-filter": ".*",
-          "if-domain": ["*doubleclick.net*", "*googlesyndication.com*", "*google-analytics.com*", "*facebook.net*", "*connect.facebook.net*"]
+          "resource-type": ["script"],
+          "if-domain": ["*doubleclick.net", "*googlesyndication.com", "*google-analytics.com", "*facebook.net", "*connect.facebook.net"]
         },
         "action": { "type": "block" }
       },
       {
         "trigger": {
           "url-filter": ".*",
-          "if-domain": ["*scorecardresearch.com*", "*hotjar.com*", "*mixpanel.com*", "*segment.io*"]
+          "resource-type": ["script"],
+          "if-domain": ["*scorecardresearch.com", "*hotjar.com", "*mixpanel.com", "*segment.io"]
         },
         "action": { "type": "block" }
       },

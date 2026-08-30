@@ -8,10 +8,14 @@ struct BrowserSplitView: View {
     @Binding var findInPageVisible: Bool
     @Binding var findQuery: String
     @Binding var readerArticle: ReaderArticle?
+    @Binding var showSettings: Bool
+    @Binding var showBookmarks: Bool
+    @Binding var showHistory: Bool
+    @Binding var showDownloads: Bool
+    @Binding var showUserScripts: Bool
+    @Binding var showSitePermissions: Bool
 
     @Environment(TabManager.self) private var tabManager
-    @Environment(ChromeState.self) private var chromeState
-    @Environment(DownloadManager.self) private var downloadManager
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
     var body: some View {
@@ -35,8 +39,7 @@ struct BrowserSplitView: View {
                         .tag(tab.id)
                         .swipeActions {
                             Button(role: .destructive) {
-                                webViewPool?.removeWebView(for: tab.id)
-                                tabManager.closeTab(tab)
+                                tabManager.closeTab(tab, webViewPool: webViewPool)
                             } label: {
                                 Label("Close", systemImage: "xmark")
                             }
@@ -59,6 +62,12 @@ struct BrowserSplitView: View {
                 findInPageVisible: $findInPageVisible,
                 findQuery: $findQuery,
                 readerArticle: $readerArticle,
+                showSettings: $showSettings,
+                showBookmarks: $showBookmarks,
+                showHistory: $showHistory,
+                showDownloads: $showDownloads,
+                showUserScripts: $showUserScripts,
+                showSitePermissions: $showSitePermissions,
                 usePager: false
             )
         }

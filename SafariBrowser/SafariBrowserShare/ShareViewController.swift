@@ -27,6 +27,10 @@ class ShareViewController: SLComposeServiceViewController {
     override func configurationItems() -> [Any]! { [] }
 
     private func saveAndOpen(_ url: URL) {
-        UserDefaults(suiteName: "group.com.safaribrowser.app")?.set(url.absoluteString, forKey: "pendingShareURL")
+        let defaults = UserDefaults(suiteName: "group.com.safaribrowser.app")
+        defaults?.set(url.absoluteString, forKey: "pendingShareURL")
+        guard let encoded = url.absoluteString.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+              let openURL = URL(string: "safaribrowser://open?url=\(encoded)") else { return }
+        extensionContext?.open(openURL, completionHandler: nil)
     }
 }

@@ -46,8 +46,7 @@ struct TabGridView: View {
                                 isSelected: tab.id == tabManager.selectedTabID,
                                 onSelect: { tabManager.selectTab(tab) },
                                 onClose: {
-                                    webViewPool?.removeWebView(for: tab.id)
-                                    tabManager.closeTab(tab)
+                                    tabManager.closeTab(tab, webViewPool: webViewPool)
                                 }
                             )
                         }

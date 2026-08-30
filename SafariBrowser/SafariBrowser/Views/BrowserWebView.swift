@@ -14,22 +14,36 @@ struct BrowserWebView: UIViewRepresentable {
         let webView = webViewPool.webView(for: tab)
         webView.navigationDelegate = context.coordinator
         webView.uiDelegate = context.coordinator
+        context.coordinator.container = nil
         context.coordinator.observeProgress(for: webView)
 
         let container = WebViewContainer(webView: webView)
+        context.coordinator.container = container
         container.onScroll = { [weak chromeState] offsetY in
             chromeState?.handleScroll(offsetY: offsetY)
         }
-        container.onRefresh = { webView.reload() }
+        container.onRefresh = { [weak webView] in
+            webView?.reload()
+        }
         return container
     }
 
     func updateUIView(_ container: WebViewContainer, context: Context) {
         context.coordinator.tab = tab
         context.coordinator.downloadManager = downloadManager
+        context.coordinator.container = container
         container.onScroll = { [weak chromeState] offsetY in
             chromeState?.handleScroll(offsetY: offsetY)
         }
+    }
+
+    static func dismantleUIView(_ uiView: WebViewContainer, coordinator: Coordinator) {
+        coordinator.progressObservation?.invalidate()
+        coordinator.progressObservation = nil
+        uiView.webView.navigationDelegate = nil
+        uiView.webView.uiDelegate = nil
+        uiView.webView.scrollView.delegate = nil
+        coordinator.container = nil
     }
 
     func makeCoordinator() -> Coordinator {
@@ -40,6 +54,7 @@ struct BrowserWebView: UIViewRepresentable {
 
     final class WebViewContainer: UIView {
         let webView: WKWebView
+        let refreshControl = UIRefreshControl()
         var onScroll: ((CGFloat) -> Void)?
         var onRefresh: (() -> Void)?
 
@@ -55,12 +70,14 @@ struct BrowserWebView: UIViewRepresentable {
                 webView.bottomAnchor.constraint(equalTo: bottomAnchor),
             ])
             webView.scrollView.delegate = self
-            let refresh = UIRefreshControl()
-            refresh.addAction(UIAction { [weak self] _ in
+            refreshControl.addAction(UIAction { [weak self] _ in
                 self?.onRefresh?()
-                refresh.endRefreshing()
             }, for: .valueChanged)
-            webView.scrollView.refreshControl = refresh
+            webView.scrollView.refreshControl = refreshControl
+        }
+
+        func endRefreshing() {
+            refreshControl.endRefreshing()
         }
 
         @available(*, unavailable)
@@ -74,6 +91,7 @@ struct BrowserWebView: UIViewRepresentable {
         var tab: BrowserTab
         var onNavigationComplete: ((URL?, String) -> Void)?
         var downloadManager: DownloadManager?
+        weak var container: WebViewContainer?
         private var progressObservation: NSKeyValueObservation?
 
         init(tab: BrowserTab, onNavigationComplete: ((URL?, String) -> Void)?, downloadManager: DownloadManager?) {
@@ -83,6 +101,7 @@ struct BrowserWebView: UIViewRepresentable {
         }
 
         func observeProgress(for webView: WKWebView) {
+            progressObservation?.invalidate()
             progressObservation = webView.observe(\.estimatedProgress, options: [.new]) { [weak self] webView, _ in
                 Task { @MainActor in
                     self?.tab.estimatedProgress = webView.estimatedProgress
@@ -93,10 +112,25 @@ struct BrowserWebView: UIViewRepresentable {
 
         func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
             tab.isLoading = true
+            tab.lastErrorMessage = nil
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            finishNavigation(webView)
+        }
+
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+            failNavigation(error)
+        }
+
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+            failNavigation(error)
+        }
+
+        private func finishNavigation(_ webView: WKWebView) {
+            container?.endRefreshing()
             tab.isLoading = false
+            tab.lastErrorMessage = nil
             tab.title = webView.title ?? tab.title
             tab.url = webView.url
             tab.canGoBack = webView.canGoBack
@@ -104,6 +138,7 @@ struct BrowserWebView: UIViewRepresentable {
             tab.lastVisitedAt = Date()
             onNavigationComplete?(webView.url, webView.title ?? "")
 
+            guard !tab.isPrivate else { return }
             Task {
                 if let url = webView.url {
                     tab.faviconData = await FaviconService.shared.fetchFavicon(for: url)
@@ -113,8 +148,10 @@ struct BrowserWebView: UIViewRepresentable {
             }
         }
 
-        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        private func failNavigation(_ error: Error) {
+            container?.endRefreshing()
             tab.isLoading = false
+            tab.lastErrorMessage = error.localizedDescription
         }
 
         func webView(
@@ -156,7 +193,7 @@ struct BrowserWebView: UIViewRepresentable {
             initiatedByFrame frame: WKFrameInfo,
             completionHandler: @escaping () -> Void
         ) {
-            completionHandler()
+            JSPanelPresenter.alert(message: message, completion: completionHandler)
         }
 
         func webView(
@@ -165,7 +202,17 @@ struct BrowserWebView: UIViewRepresentable {
             initiatedByFrame frame: WKFrameInfo,
             completionHandler: @escaping (Bool) -> Void
         ) {
-            completionHandler(true)
+            JSPanelPresenter.confirm(message: message, completion: completionHandler)
+        }
+
+        func webView(
+            _ webView: WKWebView,
+            runJavaScriptTextInputPanelWithPrompt prompt: String,
+            defaultText: String?,
+            initiatedByFrame frame: WKFrameInfo,
+            completionHandler: @escaping (String?) -> Void
+        ) {
+            JSPanelPresenter.prompt(message: prompt, defaultText: defaultText, completion: completionHandler)
         }
 
         @available(iOS 15.0, *)
@@ -187,7 +234,6 @@ struct BrowserWebView: UIViewRepresentable {
     }
 }
 
-extension BrowserWebView.Coordinator: UIScrollViewDelegate {}
 extension BrowserWebView.WebViewContainer: UIScrollViewDelegate {
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         onScroll?(scrollView.contentOffset.y)

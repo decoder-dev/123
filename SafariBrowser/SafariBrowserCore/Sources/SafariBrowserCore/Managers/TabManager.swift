@@ -30,7 +30,8 @@ public final class TabManager {
         return tab
     }
 
-    public func closeTab(_ tab: BrowserTab) {
+    public func closeTab(_ tab: BrowserTab, webViewPool: WebViewPool? = nil) {
+        webViewPool?.removeWebView(for: tab.id)
         tabs.removeAll { $0.id == tab.id }
         if tabs.isEmpty {
             addTab()
@@ -39,9 +40,9 @@ public final class TabManager {
         }
     }
 
-    public func closeTab(at index: Int) {
+    public func closeTab(at index: Int, webViewPool: WebViewPool? = nil) {
         guard tabs.indices.contains(index) else { return }
-        closeTab(tabs[index])
+        closeTab(tabs[index], webViewPool: webViewPool)
     }
 
     public func selectTab(_ tab: BrowserTab) {

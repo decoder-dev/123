@@ -14,6 +14,7 @@ public final class BrowserTab: Identifiable, @unchecked Sendable {
     public var faviconData: Data?
     public var previewImageData: Data?
     public var lastVisitedAt: Date
+    public var lastErrorMessage: String?
 
     public init(
         id: UUID = UUID(),

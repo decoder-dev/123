@@ -8,6 +8,7 @@ struct BrowserRootView: View {
     @Environment(UserscriptManager.self) private var userscriptManager
     @Environment(\.modelContext) private var modelContext
     @Environment(\.horizontalSizeClass) private var sizeClass
+    @Environment(\.scenePhase) private var scenePhase
 
     @State private var webViewPool: WebViewPool?
     @State private var urlResolver = URLResolver()
@@ -29,7 +30,13 @@ struct BrowserRootView: View {
                     urlResolver: urlResolver,
                     findInPageVisible: $findInPageVisible,
                     findQuery: $findQuery,
-                    readerArticle: $readerArticle
+                    readerArticle: $readerArticle,
+                    showSettings: $showSettings,
+                    showBookmarks: $showBookmarks,
+                    showHistory: $showHistory,
+                    showDownloads: $showDownloads,
+                    showUserScripts: $showUserScripts,
+                    showSitePermissions: $showSitePermissions
                 )
             } else {
                 BrowserContainerView(
@@ -37,7 +44,13 @@ struct BrowserRootView: View {
                     urlResolver: urlResolver,
                     findInPageVisible: $findInPageVisible,
                     findQuery: $findQuery,
-                    readerArticle: $readerArticle
+                    readerArticle: $readerArticle,
+                    showSettings: $showSettings,
+                    showBookmarks: $showBookmarks,
+                    showHistory: $showHistory,
+                    showDownloads: $showDownloads,
+                    showUserScripts: $showUserScripts,
+                    showSitePermissions: $showSitePermissions
                 )
             }
 
@@ -55,46 +68,21 @@ struct BrowserRootView: View {
         .sheet(isPresented: $showDownloads) { DownloadsView() }
         .sheet(isPresented: $showSitePermissions) { SitePermissionsView() }
         .onAppear { setupServices() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { loadPendingShareURL() }
+        }
         .onReceive(NotificationCenter.default.publisher(for: NSUbiquitousKeyValueStore.didChangeExternallyNotification)) { _ in
             mergeCloudBookmarks(into: modelContext)
         }
         .onChange(of: settings.searchEngine) { _, engine in urlResolver.searchEngine = engine }
         .onChange(of: settings.blockTrackers) { _, enabled in
             ContentBlockerService.shared.setEnabled(enabled)
+            webViewPool?.reloadAllConfigurations(for: tabManager.tabs)
+        }
+        .onChange(of: tabManager.isPrivateMode) { _, _ in
+            webViewPool?.clearAll()
         }
         .onOpenURL { url in handleIncomingURL(url) }
-        .toolbar {
-            ToolbarItemGroup(placement: .bottomBar) { overflowMenu }
-        }
-    }
-
-    private var overflowMenu: some View {
-        Menu {
-            Button { showBookmarks = true } label: {
-                Label("Bookmarks", systemImage: "book")
-            }
-            Button { showHistory = true } label: {
-                Label("History", systemImage: "clock")
-            }
-            Button { showDownloads = true } label: {
-                Label("Downloads", systemImage: "arrow.down.circle")
-            }
-            Button { showUserScripts = true } label: {
-                Label("Userscripts", systemImage: "chevron.left.forwardslash.chevron.right")
-            }
-            Button { findInPageVisible.toggle() } label: {
-                Label("Find in Page", systemImage: "magnifyingglass")
-            }
-            Button { showSitePermissions = true } label: {
-                Label("Site Permissions", systemImage: "lock.shield")
-            }
-            Divider()
-            Button { showSettings = true } label: {
-                Label("Settings", systemImage: "gear")
-            }
-        } label: {
-            Image(systemName: "ellipsis.circle")
-        }
     }
 
     private func setupServices() {
@@ -128,6 +116,7 @@ struct BrowserRootView: View {
     }
 
     private func navigateTo(_ url: URL) {
+        if tabManager.selectedTab == nil { tabManager.addTab() }
         tabManager.selectedTab?.url = url
         if let pool = webViewPool, let tab = tabManager.selectedTab {
             pool.webView(for: tab).load(URLRequest(url: url))
@@ -135,11 +124,14 @@ struct BrowserRootView: View {
     }
 
     private func handleIncomingURL(_ url: URL) {
-        if url.scheme == "safaribrowser", url.host == "open" {
-            if let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+        if url.scheme == "safaribrowser" {
+            if url.host == "open",
+               let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
                let query = components.queryItems?.first(where: { $0.name == "url" })?.value,
                let target = URL(string: query) {
                 navigateTo(target)
+            } else if url.host == "newtab" {
+                tabManager.addTab()
             }
         } else if url.scheme?.hasPrefix("http") == true {
             navigateTo(url)
@@ -147,8 +139,12 @@ struct BrowserRootView: View {
     }
 
     private func loadPendingShareURL() {
-        guard let defaults = UserDefaults(suiteName: "group.com.safaribrowser.app"),
-              let urlString = defaults.string(forKey: "pendingShareURL"),
+        guard let defaults = UserDefaults(suiteName: "group.com.safaribrowser.app") else { return }
+        if defaults.bool(forKey: "pendingNewTab") {
+            defaults.removeObject(forKey: "pendingNewTab")
+            tabManager.addTab()
+        }
+        guard let urlString = defaults.string(forKey: "pendingShareURL"),
               let url = URL(string: urlString) else { return }
         defaults.removeObject(forKey: "pendingShareURL")
         navigateTo(url)

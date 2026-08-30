@@ -7,6 +7,12 @@ struct BrowserContainerView: View {
     @Binding var findInPageVisible: Bool
     @Binding var findQuery: String
     @Binding var readerArticle: ReaderArticle?
+    @Binding var showSettings: Bool
+    @Binding var showBookmarks: Bool
+    @Binding var showHistory: Bool
+    @Binding var showDownloads: Bool
+    @Binding var showUserScripts: Bool
+    @Binding var showSitePermissions: Bool
     var usePager: Bool = true
 
     @Environment(TabManager.self) private var tabManager
@@ -35,9 +41,21 @@ struct BrowserContainerView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
 
+            if let error = tabManager.selectedTab?.lastErrorMessage {
+                VStack {
+                    ErrorBanner(message: error)
+                    Spacer()
+                }
+                .padding(.top, 8)
+            }
+
             VStack(spacing: 0) {
                 if findInPageVisible {
-                    FindInPageBar(query: $findQuery, webViewPool: webViewPool)
+                    FindInPageBar(
+                        query: $findQuery,
+                        isVisible: $findInPageVisible,
+                        webViewPool: webViewPool
+                    )
                 }
 
                 if chromeState.isToolbarVisible {
@@ -45,11 +63,20 @@ struct BrowserContainerView: View {
                         AddressBarView(
                             text: $addressText,
                             isEditing: $isEditingAddress,
+                            isPrivate: tabManager.selectedTab?.isPrivate == true || tabManager.isPrivateMode,
+                            pageURL: tabManager.selectedTab?.url,
                             onSubmit: { submitAddress() },
                             onFocus: { chromeState.showToolbar() }
                         )
                         BrowserToolbarView(
                             webViewPool: webViewPool,
+                            showSettings: $showSettings,
+                            showBookmarks: $showBookmarks,
+                            showHistory: $showHistory,
+                            showDownloads: $showDownloads,
+                            showUserScripts: $showUserScripts,
+                            showSitePermissions: $showSitePermissions,
+                            findInPageVisible: $findInPageVisible,
                             onReaderMode: { openReaderMode() }
                         )
                     }
@@ -88,11 +115,24 @@ struct BrowserContainerView: View {
         let webView = pool.webView(for: tab)
         webView.evaluateJavaScript(ReaderModeService.extractionScript) { result, _ in
             Task { @MainActor in
-                if let json = result as? String,
-                   let article = ReaderModeService.parse(json: json, sourceURL: tab.url) {
-                    readerArticle = article
-                }
+                guard let json = result as? String,
+                      let article = ReaderModeService.parse(json: json, sourceURL: tab.url) else { return }
+                readerArticle = article
             }
         }
+    }
+}
+
+private struct ErrorBanner: View {
+    let message: String
+
+    var body: some View {
+        Text(message)
+            .font(.caption)
+            .foregroundStyle(.white)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(.red.opacity(0.9), in: Capsule())
+            .padding(.horizontal)
     }
 }

@@ -4,11 +4,17 @@ import WebKit
 
 struct BrowserToolbarView: View {
     let webViewPool: WebViewPool?
+    @Binding var showSettings: Bool
+    @Binding var showBookmarks: Bool
+    @Binding var showHistory: Bool
+    @Binding var showDownloads: Bool
+    @Binding var showUserScripts: Bool
+    @Binding var showSitePermissions: Bool
+    @Binding var findInPageVisible: Bool
     var onReaderMode: () -> Void
 
     @Environment(TabManager.self) private var tabManager
     @Environment(\.modelContext) private var modelContext
-    @State private var showShareSheet = false
 
     var body: some View {
         HStack {
@@ -16,36 +22,38 @@ struct BrowserToolbarView: View {
                 Image(systemName: "chevron.left")
             }
             .disabled(!(tabManager.selectedTab?.canGoBack ?? false))
+            .accessibilityLabel("Back")
 
             Button { goForward() } label: {
                 Image(systemName: "chevron.right")
             }
             .disabled(!(tabManager.selectedTab?.canGoForward ?? false))
+            .accessibilityLabel("Forward")
 
             Spacer()
 
             Button { reload() } label: {
                 Image(systemName: tabManager.selectedTab?.isLoading == true ? "xmark" : "arrow.clockwise")
             }
+            .accessibilityLabel(tabManager.selectedTab?.isLoading == true ? "Stop" : "Reload")
 
             Button { onReaderMode() } label: {
                 Image(systemName: "doc.plaintext")
             }
+            .accessibilityLabel("Reader mode")
 
             if let url = tabManager.selectedTab?.url {
                 ShareLink(item: url) {
                     Image(systemName: "square.and.arrow.up")
                 }
-            } else {
-                Button { } label: {
-                    Image(systemName: "square.and.arrow.up")
-                }
-                .disabled(true)
+                .accessibilityLabel("Share")
             }
 
             Button { addBookmark() } label: {
                 Image(systemName: "book")
             }
+            .disabled(tabManager.selectedTab?.isPrivate == true || tabManager.isPrivateMode)
+            .accessibilityLabel("Add bookmark")
 
             Button {
                 withAnimation { tabManager.isTabGridVisible.toggle() }
@@ -60,6 +68,17 @@ struct BrowserToolbarView: View {
                         .offset(x: 6, y: -6)
                 }
             }
+            .accessibilityLabel("Tabs, \(tabManager.tabs.count) open")
+
+            BrowserOverflowMenu(
+                showSettings: $showSettings,
+                showBookmarks: $showBookmarks,
+                showHistory: $showHistory,
+                showDownloads: $showDownloads,
+                showUserScripts: $showUserScripts,
+                showSitePermissions: $showSitePermissions,
+                findInPageVisible: $findInPageVisible
+            )
         }
         .font(.body.weight(.medium))
         .buttonStyle(.plain)
@@ -84,14 +103,10 @@ struct BrowserToolbarView: View {
     }
 
     private func addBookmark() {
-        guard let tab = tabManager.selectedTab, let url = tab.url else { return }
+        guard let tab = tabManager.selectedTab, let url = tab.url, !tab.isPrivate else { return }
         let store = BookmarkStore(modelContext: modelContext)
         store.add(title: tab.displayTitle, url: url)
         HapticService.success()
-        syncBookmarksToCloud(store: store)
-    }
-
-    private func syncBookmarksToCloud(store: BookmarkStore) {
         let syncable = store.fetchAll().map {
             SyncableBookmark(id: $0.id, title: $0.title, urlString: $0.urlString, createdAt: $0.createdAt)
         }

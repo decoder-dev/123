@@ -32,6 +32,11 @@ struct SafariBrowserWidgetProvider: TimelineProvider {
 struct SafariBrowserWidgetView: View {
     var entry: BookmarkEntry
 
+    private var deepLinkURL: URL? {
+        guard let encoded = entry.urlString.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else { return nil }
+        return URL(string: "safaribrowser://open?url=\(encoded)")
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
@@ -50,6 +55,7 @@ struct SafariBrowserWidgetView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .padding()
+        .widgetURL(deepLinkURL)
     }
 }
 

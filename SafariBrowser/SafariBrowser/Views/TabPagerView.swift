@@ -68,6 +68,7 @@ struct TabPagerView: View {
     }
 
     private func recordHistory(url: URL?, title: String) {
+        guard let tab = tabManager.selectedTab, !tab.isPrivate else { return }
         guard let url, url.scheme?.hasPrefix("http") == true else { return }
         let store = HistoryStore(modelContext: modelContext)
         store.record(title: title.isEmpty ? url.host ?? url.absoluteString : title, url: url)
