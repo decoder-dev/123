@@ -56,11 +56,14 @@ struct BrowserRootView: View {
 
             if tabManager.isTabGridVisible {
                 TabGridView(webViewPool: webViewPool)
-                    .transition(.opacity.combined(with: .scale(scale: 0.95)))
+                    .transition(.asymmetric(
+                        insertion: .opacity.combined(with: .scale(scale: 0.92)),
+                        removal: .opacity.combined(with: .scale(scale: 0.96))
+                    ))
                     .zIndex(1)
             }
         }
-        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: tabManager.isTabGridVisible)
+        .animation(BrowserMotion.grid, value: tabManager.isTabGridVisible)
         .sheet(isPresented: $showSettings) { SettingsView() }
         .sheet(isPresented: $showBookmarks) { BookmarksView(onSelect: navigateTo) }
         .sheet(isPresented: $showHistory) { HistoryView(onSelect: navigateTo) }

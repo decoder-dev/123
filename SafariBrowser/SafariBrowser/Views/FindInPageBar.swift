@@ -11,9 +11,13 @@ struct FindInPageBar: View {
     @State private var matchCount = 0
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: BrowserSpacing.md) {
+            Image(systemName: "magnifyingglass")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(BrowserTheme.muted)
+
             TextField("Find in page", text: $query)
-                .textFieldStyle(.roundedBorder)
+                .font(.subheadline)
                 .focused($isFocused)
                 .onSubmit { findNext() }
                 .onChange(of: query) { _, newValue in
@@ -23,30 +27,38 @@ struct FindInPageBar: View {
 
             if matchCount > 0 {
                 Text("\(matchCount)")
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
+                    .font(.caption.monospacedDigit().weight(.semibold))
+                    .foregroundStyle(BrowserTheme.muted)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(BrowserTheme.card.opacity(0.8), in: Capsule())
             }
 
             Button(action: findPrevious) {
                 Image(systemName: "chevron.up")
+                    .frame(width: 32, height: 32)
             }
+            .browserPressable()
             .accessibilityLabel("Previous match")
 
             Button(action: findNext) {
                 Image(systemName: "chevron.down")
+                    .frame(width: 32, height: 32)
             }
+            .browserPressable()
             .accessibilityLabel("Next match")
 
-            Button {
-                close()
-            } label: {
+            Button(action: close) {
                 Image(systemName: "xmark")
+                    .frame(width: 32, height: 32)
             }
+            .browserPressable()
             .accessibilityLabel("Close find bar")
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(.ultraThinMaterial)
+        .foregroundStyle(BrowserTheme.ink)
+        .padding(.horizontal, BrowserSpacing.lg)
+        .padding(.vertical, BrowserSpacing.sm)
+        .browserGlass(radius: BrowserRadius.compact, style: .thin)
         .onAppear { isFocused = true }
         .onChange(of: isVisible) { _, visible in
             if !visible { clearHighlights() }

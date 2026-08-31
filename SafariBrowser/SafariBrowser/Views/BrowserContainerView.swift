@@ -22,8 +22,12 @@ struct BrowserContainerView: View {
     @State private var addressText = ""
     @State private var isEditingAddress = false
 
+    private var isPrivate: Bool {
+        tabManager.selectedTab?.isPrivate == true || tabManager.isPrivateMode
+    }
+
     var body: some View {
-        ZStack(alignment: .bottom) {
+        ZStack {
             if let pool = webViewPool {
                 TabPagerView(
                     webViewPool: pool,
@@ -32,13 +36,15 @@ struct BrowserContainerView: View {
                     downloadManager: downloadManager,
                     usePager: usePager
                 )
-                .ignoresSafeArea(edges: .top)
-                .scaleEffect(chromeState.isCreatingTab ? 0.95 : 1.0)
-                .opacity(chromeState.isCreatingTab ? 0.8 : 1.0)
-                .animation(.spring(response: 0.35, dampingFraction: 0.8), value: chromeState.isCreatingTab)
+                .scaleEffect(chromeState.isCreatingTab ? 0.96 : 1.0)
+                .opacity(chromeState.isCreatingTab ? 0.85 : 1.0)
+                .animation(BrowserMotion.chrome, value: chromeState.isCreatingTab)
             } else {
-                ProgressView("Loading…")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                ZStack {
+                    BrowserBackground(isPrivate: isPrivate)
+                    ProgressView("Loading…")
+                        .tint(BrowserTheme.accent(forPrivate: isPrivate))
+                }
             }
 
             if let error = tabManager.selectedTab?.lastErrorMessage {
@@ -46,61 +52,68 @@ struct BrowserContainerView: View {
                     ErrorBanner(message: error)
                     Spacer()
                 }
-                .padding(.top, 8)
-            }
-
-            VStack(spacing: 0) {
-                if findInPageVisible {
-                    FindInPageBar(
-                        query: $findQuery,
-                        isVisible: $findInPageVisible,
-                        webViewPool: webViewPool
-                    )
-                }
-
-                if chromeState.isToolbarVisible {
-                    VStack(spacing: 8) {
-                        AddressBarView(
-                            text: $addressText,
-                            isEditing: $isEditingAddress,
-                            isPrivate: tabManager.selectedTab?.isPrivate == true || tabManager.isPrivateMode,
-                            pageURL: tabManager.selectedTab?.url,
-                            onSubmit: { submitAddress() },
-                            onFocus: { chromeState.showToolbar() }
-                        )
-                        BrowserToolbarView(
-                            webViewPool: webViewPool,
-                            showSettings: $showSettings,
-                            showBookmarks: $showBookmarks,
-                            showHistory: $showHistory,
-                            showDownloads: $showDownloads,
-                            showUserScripts: $showUserScripts,
-                            showSitePermissions: $showSitePermissions,
-                            findInPageVisible: $findInPageVisible,
-                            onReaderMode: { openReaderMode() }
-                        )
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.bottom, 8)
-                    .background(.ultraThinMaterial)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
+                .padding(.top, BrowserSpacing.sm)
             }
         }
-        .animation(.easeInOut(duration: 0.25), value: chromeState.isToolbarVisible)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if chromeState.isToolbarVisible {
+                browserChrome
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(BrowserMotion.chrome, value: chromeState.isToolbarVisible)
         .onChange(of: tabManager.selectedTabID) { _, _ in syncAddressBar() }
         .onAppear { syncAddressBar() }
         .sheet(item: $readerArticle) { article in
             ReaderView(
                 article: article,
-                isPrivate: tabManager.selectedTab?.isPrivate == true || tabManager.isPrivateMode
+                isPrivate: isPrivate
             )
         }
     }
 
+    private var browserChrome: some View {
+        VStack(spacing: BrowserSpacing.sm) {
+            if findInPageVisible {
+                FindInPageBar(
+                    query: $findQuery,
+                    isVisible: $findInPageVisible,
+                    webViewPool: webViewPool
+                )
+            }
+
+            AddressBarView(
+                text: $addressText,
+                isEditing: $isEditingAddress,
+                isPrivate: isPrivate,
+                pageURL: tabManager.selectedTab?.url,
+                onSubmit: { submitAddress() },
+                onFocus: { chromeState.showToolbar() }
+            )
+
+            BrowserToolbarView(
+                webViewPool: webViewPool,
+                showSettings: $showSettings,
+                showBookmarks: $showBookmarks,
+                showHistory: $showHistory,
+                showDownloads: $showDownloads,
+                showUserScripts: $showUserScripts,
+                showSitePermissions: $showSitePermissions,
+                findInPageVisible: $findInPageVisible,
+                onReaderMode: { openReaderMode() }
+            )
+        }
+        .padding(.horizontal, BrowserSpacing.chromeInset)
+        .padding(.bottom, BrowserSpacing.sm)
+    }
+
     private func syncAddressBar() {
         guard !isEditingAddress else { return }
-        addressText = tabManager.selectedTab?.displayURL ?? ""
+        if let host = tabManager.selectedTab?.url?.host, !host.isEmpty {
+            addressText = host
+        } else {
+            addressText = tabManager.selectedTab?.displayURL ?? ""
+        }
     }
 
     private func submitAddress() {
@@ -110,7 +123,7 @@ struct BrowserContainerView: View {
         if let pool = webViewPool, let tab = tabManager.selectedTab {
             pool.webView(for: tab).load(URLRequest(url: url))
         }
-        addressText = url.absoluteString
+        addressText = url.host ?? url.absoluteString
     }
 
     private func openReaderMode() {
@@ -131,11 +144,12 @@ private struct ErrorBanner: View {
 
     var body: some View {
         Text(message)
-            .font(.caption)
+            .font(.caption.weight(.medium))
             .foregroundStyle(.white)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(.red.opacity(0.9), in: Capsule())
-            .padding(.horizontal)
+            .padding(.horizontal, BrowserSpacing.lg)
+            .padding(.vertical, BrowserSpacing.sm)
+            .background(BrowserTheme.destructive.opacity(0.92), in: Capsule())
+            .shadow(color: BrowserTheme.destructive.opacity(0.25), radius: 8, y: 3)
+            .padding(.horizontal, BrowserSpacing.lg)
     }
 }

@@ -21,11 +21,12 @@ struct TabPagerView: View {
                 singleTabView(tab)
             }
         }
-        .overlay(alignment: .top) {
+        .safeAreaInset(edge: .top, spacing: 0) {
             if let tab = tabManager.selectedTab, tab.isLoading {
-                ProgressView(value: tab.estimatedProgress)
+                ProgressView(value: max(tab.estimatedProgress, 0.02))
                     .progressViewStyle(.linear)
-                    .animation(.easeInOut, value: tab.estimatedProgress)
+                    .tint(BrowserTheme.accent(forPrivate: tab.isPrivate || tabManager.isPrivateMode))
+                    .animation(.easeInOut(duration: 0.2), value: tab.estimatedProgress)
             }
         }
         .simultaneousGesture(newTabSwipeGesture)
@@ -47,13 +48,19 @@ struct TabPagerView: View {
     }
 
     private func singleTabView(_ tab: BrowserTab) -> some View {
-        BrowserWebView(
-            tab: tab,
-            webViewPool: webViewPool,
-            chromeState: chromeState,
-            downloadManager: downloadManager,
-            onNavigationComplete: { url, title in recordHistory(url: url, title: title) }
-        )
+        ZStack {
+            if tab.url == nil {
+                StartPageView(isPrivate: tab.isPrivate || tabManager.isPrivateMode)
+            }
+            BrowserWebView(
+                tab: tab,
+                webViewPool: webViewPool,
+                chromeState: chromeState,
+                downloadManager: downloadManager,
+                onNavigationComplete: { url, title in recordHistory(url: url, title: title) }
+            )
+            .opacity(tab.url == nil ? 0 : 1)
+        }
     }
 
     private var newTabSwipeGesture: some Gesture {

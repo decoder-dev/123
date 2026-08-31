@@ -16,61 +16,32 @@ struct BrowserToolbarView: View {
     @Environment(TabManager.self) private var tabManager
     @Environment(\.modelContext) private var modelContext
 
+    private var isPrivate: Bool {
+        tabManager.selectedTab?.isPrivate == true || tabManager.isPrivateMode
+    }
+
     var body: some View {
-        HStack {
-            Button { goBack() } label: {
-                Image(systemName: "chevron.left")
-            }
-            .disabled(!(tabManager.selectedTab?.canGoBack ?? false))
-            .accessibilityLabel("Back")
+        HStack(spacing: 0) {
+            navGroup
 
-            Button { goForward() } label: {
-                Image(systemName: "chevron.right")
-            }
-            .disabled(!(tabManager.selectedTab?.canGoForward ?? false))
-            .accessibilityLabel("Forward")
+            Spacer(minLength: BrowserSpacing.sm)
 
-            Spacer()
+            reloadButton
 
-            Button { reload() } label: {
-                Image(systemName: tabManager.selectedTab?.isLoading == true ? "xmark" : "arrow.clockwise")
-            }
-            .accessibilityLabel(tabManager.selectedTab?.isLoading == true ? "Stop" : "Reload")
+            Spacer(minLength: BrowserSpacing.sm)
 
-            Button { onReaderMode() } label: {
-                Image(systemName: "doc.plaintext")
-            }
-            .accessibilityLabel("Reader mode")
-
-            if let url = tabManager.selectedTab?.url,
-               tabManager.selectedTab?.isPrivate != true,
-               !tabManager.isPrivateMode {
-                ShareLink(item: url) {
-                    Image(systemName: "square.and.arrow.up")
-                }
-                .accessibilityLabel("Share")
-            }
-
-            Button { addBookmark() } label: {
-                Image(systemName: "book")
-            }
-            .disabled(tabManager.selectedTab?.isPrivate == true || tabManager.isPrivateMode)
-            .accessibilityLabel("Add bookmark")
-
-            Button {
-                withAnimation { tabManager.isTabGridVisible.toggle() }
-            } label: {
-                ZStack(alignment: .topTrailing) {
-                    Image(systemName: "square.on.square")
-                    Text("\(tabManager.tabs.count)")
-                        .font(.system(size: 9, weight: .bold))
-                        .padding(3)
-                        .background(Color.accentColor, in: Circle())
-                        .foregroundStyle(.white)
-                        .offset(x: 6, y: -6)
+            BrowserTabBadgeButton(
+                count: tabManager.tabs.count,
+                isPrivate: isPrivate
+            ) {
+                withAnimation(BrowserMotion.grid) {
+                    tabManager.isTabGridVisible.toggle()
                 }
             }
-            .accessibilityLabel("Tabs, \(tabManager.tabs.count) open")
+
+            Spacer(minLength: BrowserSpacing.sm)
+
+            shareButton
 
             BrowserOverflowMenu(
                 showSettings: $showSettings,
@@ -79,12 +50,74 @@ struct BrowserToolbarView: View {
                 showDownloads: $showDownloads,
                 showUserScripts: $showUserScripts,
                 showSitePermissions: $showSitePermissions,
-                findInPageVisible: $findInPageVisible
+                findInPageVisible: $findInPageVisible,
+                onReaderMode: onReaderMode,
+                onAddBookmark: addBookmark,
+                canBookmark: !isPrivate && tabManager.selectedTab?.url != nil
             )
         }
-        .font(.body.weight(.medium))
-        .buttonStyle(.plain)
-        .padding(.vertical, 4)
+        .font(.system(size: 18, weight: .semibold))
+        .padding(.horizontal, BrowserSpacing.sm)
+        .padding(.vertical, 5)
+        .browserGlass(
+            radius: BrowserRadius.chrome,
+            style: .interactive,
+            tint: isPrivate ? BrowserTheme.privateAccent.opacity(0.08) : nil
+        )
+    }
+
+    private var navGroup: some View {
+        HStack(spacing: 2) {
+            toolbarButton(
+                "chevron.left",
+                label: "Back",
+                enabled: tabManager.selectedTab?.canGoBack ?? false,
+                action: goBack
+            )
+            toolbarButton(
+                "chevron.right",
+                label: "Forward",
+                enabled: tabManager.selectedTab?.canGoForward ?? false,
+                action: goForward
+            )
+        }
+    }
+
+    private var reloadButton: some View {
+        toolbarButton(
+            tabManager.selectedTab?.isLoading == true ? "xmark" : "arrow.clockwise",
+            label: tabManager.selectedTab?.isLoading == true ? "Stop" : "Reload",
+            action: reload
+        )
+    }
+
+    @ViewBuilder
+    private var shareButton: some View {
+        if let url = tabManager.selectedTab?.url, !isPrivate {
+            ShareLink(item: url) {
+                Image(systemName: "square.and.arrow.up")
+                    .frame(width: BrowserMetrics.iconButton, height: BrowserMetrics.iconButton)
+                    .foregroundStyle(BrowserTheme.ink)
+            }
+            .browserPressable()
+            .accessibilityLabel("Share")
+        }
+    }
+
+    private func toolbarButton(
+        _ systemName: String,
+        label: String,
+        enabled: Bool = true,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .frame(width: BrowserMetrics.iconButton, height: BrowserMetrics.iconButton)
+        }
+        .disabled(!enabled)
+        .foregroundStyle(enabled ? BrowserTheme.ink : BrowserTheme.muted.opacity(0.4))
+        .browserPressable()
+        .accessibilityLabel(label)
     }
 
     private func currentWebView() -> WKWebView? {

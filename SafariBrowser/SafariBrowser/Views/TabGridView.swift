@@ -6,71 +6,109 @@ struct TabGridView: View {
     @Environment(TabManager.self) private var tabManager
 
     private let columns = [
-        GridItem(.flexible(), spacing: 16),
-        GridItem(.flexible(), spacing: 16),
+        GridItem(.flexible(), spacing: BrowserSpacing.lg),
+        GridItem(.flexible(), spacing: BrowserSpacing.lg),
     ]
+
+    private var isPrivate: Bool { tabManager.isPrivateMode }
 
     var body: some View {
         ZStack {
-            Color.black.opacity(0.4)
+            Color.black.opacity(0.55)
                 .ignoresSafeArea()
+                .background(.ultraThinMaterial)
                 .onTapGesture {
-                    tabManager.isTabGridVisible = false
+                    withAnimation(BrowserMotion.grid) {
+                        tabManager.isTabGridVisible = false
+                    }
                 }
 
-            VStack(spacing: 20) {
-                HStack {
-                    Text("\(tabManager.tabs.count) Tab\(tabManager.tabs.count == 1 ? "" : "s")")
-                        .font(.headline)
-                    Spacer()
-                    if tabManager.isPrivateMode {
-                        Label("Private", systemImage: "hand.raised.fill")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    Button {
-                        tabManager.isTabGridVisible = false
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.title2)
-                            .symbolRenderingMode(.hierarchical)
-                    }
-                }
-                .padding(.horizontal)
+            VStack(spacing: 0) {
+                header
+                    .padding(.horizontal, BrowserSpacing.lg)
+                    .padding(.top, BrowserSpacing.lg)
+                    .padding(.bottom, BrowserSpacing.md)
 
                 ScrollView {
-                    LazyVGrid(columns: columns, spacing: 16) {
+                    LazyVGrid(columns: columns, spacing: BrowserSpacing.lg) {
                         ForEach(tabManager.tabs) { tab in
                             TabCardView(
                                 tab: tab,
                                 isSelected: tab.id == tabManager.selectedTabID,
-                                onSelect: { tabManager.selectTab(tab) },
+                                onSelect: {
+                                    withAnimation(BrowserMotion.grid) {
+                                        tabManager.selectTab(tab)
+                                    }
+                                },
                                 onClose: {
                                     tabManager.closeTab(tab, webViewPool: webViewPool)
                                 }
                             )
                         }
                     }
-                    .padding(.horizontal)
+                    .padding(.horizontal, BrowserSpacing.lg)
+                    .padding(.bottom, BrowserSpacing.lg)
                 }
 
-                Button {
-                    tabManager.addTab()
-                    tabManager.isTabGridVisible = false
-                } label: {
-                    Label("New Tab", systemImage: "plus")
-                        .font(.headline)
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
-                }
-                .padding(.horizontal)
-                .padding(.bottom)
+                newTabButton
+                    .padding(.horizontal, BrowserSpacing.lg)
+                    .padding(.bottom, BrowserSpacing.lg)
             }
-            .padding(.top, 60)
-            .background(.regularMaterial)
-            .clipShape(RoundedRectangle(cornerRadius: 20))
-            .padding()
+            .browserGlass(
+                radius: BrowserRadius.card + 4,
+                style: .regular,
+                tint: isPrivate ? BrowserTheme.privateAccent.opacity(0.06) : nil
+            )
+            .padding(.horizontal, BrowserSpacing.sm)
+            .padding(.top, 52)
+            .padding(.bottom, BrowserSpacing.sm)
         }
+    }
+
+    private var header: some View {
+        HStack(alignment: .center) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("\(tabManager.tabs.count) Tab\(tabManager.tabs.count == 1 ? "" : "s")")
+                    .font(.title2.bold())
+                    .foregroundStyle(BrowserTheme.ink)
+                if isPrivate {
+                    BrowserStatusPill(title: "Private", icon: "hand.raised.fill")
+                }
+            }
+            Spacer()
+            Button {
+                withAnimation(BrowserMotion.grid) {
+                    tabManager.isTabGridVisible = false
+                }
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(BrowserTheme.ink)
+                    .frame(width: 36, height: 36)
+                    .background(BrowserTheme.card.opacity(0.6), in: Circle())
+            }
+            .browserPressable()
+            .accessibilityLabel("Close tab switcher")
+        }
+    }
+
+    private var newTabButton: some View {
+        Button {
+            tabManager.addTab()
+            withAnimation(BrowserMotion.grid) {
+                tabManager.isTabGridVisible = false
+            }
+        } label: {
+            Label("New Tab", systemImage: "plus")
+                .font(.headline)
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, BrowserSpacing.lg)
+                .background(
+                    BrowserTheme.accent(forPrivate: isPrivate).gradient,
+                    in: RoundedRectangle(cornerRadius: BrowserRadius.compact, style: .continuous)
+                )
+        }
+        .browserPressable()
     }
 }

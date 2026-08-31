@@ -7,59 +7,84 @@ struct TabCardView: View {
     let onSelect: () -> Void
     let onClose: () -> Void
 
+    private var accent: Color {
+        BrowserTheme.accent(forPrivate: tab.isPrivate)
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: BrowserSpacing.sm) {
             HStack(spacing: 6) {
                 faviconView
-                    .frame(width: 16, height: 16)
+                    .frame(width: 18, height: 18)
                 Text(tab.displayTitle)
                     .font(.caption.weight(.semibold))
+                    .foregroundStyle(BrowserTheme.ink)
                     .lineLimit(1)
-                Spacer()
+                Spacer(minLength: 0)
                 Button(action: onClose) {
                     Image(systemName: "xmark")
-                        .font(.caption2)
-                        .padding(4)
-                        .background(.ultraThinMaterial, in: Circle())
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(BrowserTheme.muted)
+                        .frame(width: 24, height: 24)
+                        .background(BrowserTheme.card.opacity(0.7), in: Circle())
                 }
+                .browserPressable()
+                .accessibilityLabel("Close tab")
             }
 
-            RoundedRectangle(cornerRadius: 8)
-                .fill(Color(.systemGray5))
-                .frame(height: 120)
-                .overlay {
-                    if let data = tab.previewImageData, let uiImage = UIImage(data: data) {
-                        Image(uiImage: uiImage)
-                            .resizable()
-                            .scaledToFill()
-                            .frame(height: 120)
-                            .clipped()
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
-                    } else if tab.url != nil {
-                        Image(systemName: "globe")
-                            .font(.largeTitle)
-                            .foregroundStyle(.tertiary)
-                    } else {
-                        Text("New Tab")
-                            .foregroundStyle(.tertiary)
-                    }
-                }
+            preview
+                .frame(height: 118)
+                .clipShape(RoundedRectangle(cornerRadius: BrowserRadius.preview, style: .continuous))
 
-            Text(tab.displayURL.isEmpty ? "about:blank" : tab.displayURL)
+            Text(tab.displayURL.isEmpty ? "New Tab" : tab.displayURL)
                 .font(.caption2)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(BrowserTheme.muted)
                 .lineLimit(1)
         }
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 14)
-                .fill(isSelected ? Color.accentColor.opacity(0.12) : Color(.systemBackground))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 14)
-                .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
-        )
+        .padding(BrowserSpacing.md)
+        .background {
+            RoundedRectangle(cornerRadius: BrowserRadius.compact, style: .continuous)
+                .fill(BrowserTheme.card.opacity(isSelected ? 0.95 : 0.65))
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: BrowserRadius.compact, style: .continuous)
+                .strokeBorder(
+                    isSelected ? accent : Color.primary.opacity(0.06),
+                    lineWidth: isSelected ? 2 : 0.8
+                )
+        }
+        .shadow(color: isSelected ? accent.opacity(0.18) : .clear, radius: 10, y: 4)
         .onTapGesture(perform: onSelect)
+    }
+
+    @ViewBuilder
+    private var preview: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: BrowserRadius.preview, style: .continuous)
+                .fill(
+                    tab.isPrivate
+                        ? BrowserTheme.privateAccent.opacity(0.08)
+                        : BrowserTheme.accent.opacity(0.06)
+                )
+            if let data = tab.previewImageData, let uiImage = UIImage(data: data) {
+                Image(uiImage: uiImage)
+                    .resizable()
+                    .scaledToFill()
+            } else if tab.url != nil {
+                Image(systemName: "globe")
+                    .font(.system(size: 28, weight: .medium))
+                    .foregroundStyle(accent.opacity(0.45))
+            } else {
+                VStack(spacing: 6) {
+                    Image(systemName: tab.isPrivate ? "hand.raised.fill" : "safari")
+                        .font(.title2)
+                        .foregroundStyle(accent.opacity(0.5))
+                    Text("New Tab")
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(BrowserTheme.muted)
+                }
+            }
+        }
     }
 
     @ViewBuilder
@@ -67,15 +92,16 @@ struct TabCardView: View {
         if tab.isPrivate {
             Image(systemName: "hand.raised.fill")
                 .font(.caption2)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(BrowserTheme.privateAccent)
         } else if let data = tab.faviconData, let uiImage = UIImage(data: data) {
             Image(uiImage: uiImage)
                 .resizable()
                 .scaledToFit()
+                .clipShape(RoundedRectangle(cornerRadius: 3))
         } else {
             Image(systemName: "globe")
                 .font(.caption2)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(BrowserTheme.muted)
         }
     }
 }
