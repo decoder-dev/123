@@ -15,6 +15,7 @@ struct BrowserToolbarView: View {
 
     @Environment(TabManager.self) private var tabManager
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.horizontalSizeClass) private var sizeClass
 
     private var isPrivate: Bool {
         tabManager.selectedTab?.isPrivate == true || tabManager.isPrivateMode
@@ -28,18 +29,22 @@ struct BrowserToolbarView: View {
 
             reloadButton
 
-            Spacer(minLength: BrowserSpacing.sm)
+            if sizeClass != .regular {
+                Spacer(minLength: BrowserSpacing.sm)
 
-            BrowserTabBadgeButton(
-                count: tabManager.tabs.count,
-                isPrivate: isPrivate
-            ) {
-                withAnimation(BrowserMotion.grid) {
-                    tabManager.isTabGridVisible.toggle()
+                BrowserTabBadgeButton(
+                    count: tabManager.tabs.count,
+                    isPrivate: isPrivate
+                ) {
+                    withAnimation(BrowserMotion.grid) {
+                        tabManager.isTabGridVisible.toggle()
+                    }
                 }
-            }
 
-            Spacer(minLength: BrowserSpacing.sm)
+                Spacer(minLength: BrowserSpacing.sm)
+            } else {
+                Spacer(minLength: BrowserSpacing.sm)
+            }
 
             shareButton
 

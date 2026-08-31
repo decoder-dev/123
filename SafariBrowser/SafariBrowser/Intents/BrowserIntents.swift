@@ -13,9 +13,7 @@ struct OpenURLIntent: AppIntent {
     }
 
     func perform() async throws -> some IntentResult {
-        if let defaults = UserDefaults(suiteName: "group.com.safaribrowser.app") {
-            defaults.set(url.absoluteString, forKey: "pendingShareURL")
-        }
+        AppGroupStorage.defaults.set(url.absoluteString, forKey: AppGroupStorage.Key.pendingShareURL)
         return .result()
     }
 }
@@ -29,11 +27,10 @@ struct NewTabIntent: AppIntent {
     var url: URL
 
     func perform() async throws -> some IntentResult {
-        if let defaults = UserDefaults(suiteName: "group.com.safaribrowser.app") {
-            defaults.set(true, forKey: "pendingNewTab")
-            if url.absoluteString != "about:blank" {
-                defaults.set(url.absoluteString, forKey: "pendingShareURL")
-            }
+        let defaults = AppGroupStorage.defaults
+        defaults.set(true, forKey: AppGroupStorage.Key.pendingNewTab)
+        if url.absoluteString != "about:blank" {
+            defaults.set(url.absoluteString, forKey: AppGroupStorage.Key.pendingShareURL)
         }
         return .result()
     }

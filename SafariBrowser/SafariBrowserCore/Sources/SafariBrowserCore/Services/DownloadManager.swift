@@ -10,6 +10,7 @@ public struct BrowserDownload: Identifiable, Codable, Sendable {
     public var localPath: String?
     public var createdAt: Date
     public var isPrivate: Bool
+    public var errorMessage: String?
 
     public init(id: UUID = UUID(), filename: String, url: URL, isPrivate: Bool = false) {
         self.id = id
@@ -24,7 +25,7 @@ public struct BrowserDownload: Identifiable, Codable, Sendable {
     public var url: URL? { URL(string: urlString) }
 
     enum CodingKeys: String, CodingKey {
-        case id, filename, urlString, progress, isComplete, localPath, createdAt, isPrivate
+        case id, filename, urlString, progress, isComplete, localPath, createdAt, isPrivate, errorMessage
     }
 
     public init(from decoder: Decoder) throws {
@@ -37,6 +38,7 @@ public struct BrowserDownload: Identifiable, Codable, Sendable {
         localPath = try container.decodeIfPresent(String.self, forKey: .localPath)
         createdAt = try container.decode(Date.self, forKey: .createdAt)
         isPrivate = try container.decodeIfPresent(Bool.self, forKey: .isPrivate) ?? false
+        errorMessage = try container.decodeIfPresent(String.self, forKey: .errorMessage)
     }
 }
 
@@ -150,18 +152,20 @@ public final class DownloadManager: NSObject {
             let (tempURL, response) = try await URLSession.shared.download(from: url)
             guard let loc = index(of: downloadID) else { return }
             var download = loc.array == "private" ? privateDownloads[loc.index] : persistedDownloads[loc.index]
-            let dest = downloadsDirectory(isPrivate: isPrivate).appendingPathComponent(download.filename)
+            var filename = download.filename
+            if let http = response as? HTTPURLResponse, !filename.contains(".") {
+                if let ext = http.mimeType.flatMap({ mimeToExtension($0) }) {
+                    filename = "\(filename).\(ext)"
+                }
+            }
+            let dest = downloadsDirectory(isPrivate: isPrivate).appendingPathComponent(filename)
             try? FileManager.default.removeItem(at: dest)
             try FileManager.default.moveItem(at: tempURL, to: dest)
+            download.filename = filename
             download.progress = 1.0
             download.isComplete = true
             download.localPath = dest.path
-            if let http = response as? HTTPURLResponse, !download.filename.contains(".") {
-                let ext = http.mimeType.flatMap { mimeToExtension($0) }
-                if let ext {
-                    download.filename = "\(download.filename).\(ext)"
-                }
-            }
+            download.errorMessage = nil
             if loc.array == "private" {
                 privateDownloads[loc.index] = download
             } else {
@@ -170,7 +174,11 @@ public final class DownloadManager: NSObject {
             }
             HapticService.success()
         } catch {
-            removeByID(downloadID)
+            updateDownload(id: downloadID) { item in
+                item.isComplete = false
+                item.progress = 0
+                item.errorMessage = error.localizedDescription
+            }
         }
     }
 
@@ -248,7 +256,11 @@ extension DownloadManager: WKDownloadDelegate {
 
     public func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
         if let entryID = activeDownloads[ObjectIdentifier(download)] {
-            removeByID(entryID)
+            updateDownload(id: entryID) { item in
+                item.isComplete = false
+                item.progress = 0
+                item.errorMessage = error.localizedDescription
+            }
         }
         cleanupWKDownload(download)
     }

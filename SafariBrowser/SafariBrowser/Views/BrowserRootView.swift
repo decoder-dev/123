@@ -6,6 +6,7 @@ struct BrowserRootView: View {
     @Environment(TabManager.self) private var tabManager
     @Environment(BrowserSettings.self) private var settings
     @Environment(UserscriptManager.self) private var userscriptManager
+    @Environment(ChromeState.self) private var chromeState
     @Environment(\.modelContext) private var modelContext
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.scenePhase) private var scenePhase
@@ -21,6 +22,9 @@ struct BrowserRootView: View {
     @State private var findInPageVisible = false
     @State private var findQuery = ""
     @State private var readerArticle: ReaderArticle?
+    @State private var contentBlockerReady = true
+
+    private let sessionStore = SessionStore()
 
     var body: some View {
         ZStack {
@@ -54,7 +58,7 @@ struct BrowserRootView: View {
                 )
             }
 
-            if tabManager.isTabGridVisible {
+            if sizeClass != .regular, tabManager.isTabGridVisible {
                 TabGridView(webViewPool: webViewPool)
                     .transition(.asymmetric(
                         insertion: .opacity.combined(with: .scale(scale: 0.92)),
@@ -64,23 +68,44 @@ struct BrowserRootView: View {
             }
         }
         .animation(BrowserMotion.grid, value: tabManager.isTabGridVisible)
-        .sheet(isPresented: $showSettings) { SettingsView() }
-        .sheet(isPresented: $showBookmarks) { BookmarksView(onSelect: navigateTo) }
-        .sheet(isPresented: $showHistory) { HistoryView(onSelect: navigateTo) }
-        .sheet(isPresented: $showUserScripts) { UserScriptsView() }
-        .sheet(isPresented: $showDownloads) { DownloadsView() }
-        .sheet(isPresented: $showSitePermissions) { SitePermissionsView() }
-        .onAppear { setupServices() }
+        .sheet(isPresented: $showSettings) { SettingsView(contentBlockerReady: contentBlockerReady).browserSheet() }
+        .sheet(isPresented: $showBookmarks) { BookmarksView(onSelect: navigateTo).browserSheet() }
+        .sheet(isPresented: $showHistory) { HistoryView(onSelect: navigateTo).browserSheet() }
+        .sheet(isPresented: $showUserScripts) { UserScriptsView().browserSheet() }
+        .sheet(isPresented: $showDownloads) { DownloadsView().browserSheet() }
+        .sheet(isPresented: $showSitePermissions) { SitePermissionsView().browserSheet() }
+        .onAppear {
+            chromeState.isToolbarVisible = !settings.toolbarCollapsedByDefault
+            setupServices()
+        }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active { loadPendingShareURL() }
+            if phase == .active {
+                loadPendingShareURL()
+            } else if phase == .background {
+                sessionStore.save(tabManager)
+                if settings.clearDataOnExit {
+                    BrowsingDataClearer.clearOnExit()
+                }
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSUbiquitousKeyValueStore.didChangeExternallyNotification)) { _ in
             mergeCloudBookmarks(into: modelContext)
         }
+        .onReceive(NotificationCenter.default.publisher(for: .userscriptsDidChange)) { _ in
+            reloadWebConfigurations()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .reloadWebViewConfigurations)) { _ in
+            reloadWebConfigurations()
+        }
         .onChange(of: settings.searchEngine) { _, engine in urlResolver.searchEngine = engine }
         .onChange(of: settings.blockTrackers) { _, enabled in
             ContentBlockerService.shared.setEnabled(enabled)
-            webViewPool?.reloadAllConfigurations(for: tabManager.tabs)
+            reloadWebConfigurations()
+        }
+        .onChange(of: settings.toolbarCollapsedByDefault) { _, collapsed in
+            if !chromeState.isCreatingTab {
+                chromeState.isToolbarVisible = !collapsed
+            }
         }
         .onChange(of: tabManager.isPrivateMode) { _, isPrivate in
             webViewPool?.clearAll()
@@ -97,8 +122,23 @@ struct BrowserRootView: View {
         webViewPool = WebViewPool(configFactory: factory)
         loadUserscriptsFromStore()
         mergeCloudBookmarks(into: modelContext)
-        Task { await WebExtensionManager.shared.loadBundledExtensions() }
         loadPendingShareURL()
+
+        Task {
+            do {
+                try await ContentBlockerService.shared.compileRules()
+                contentBlockerReady = true
+            } catch {
+                contentBlockerReady = false
+            }
+            ContentBlockerService.shared.setEnabled(settings.blockTrackers)
+            await WebExtensionManager.shared.loadBundledExtensions()
+            reloadWebConfigurations()
+        }
+    }
+
+    private func reloadWebConfigurations() {
+        webViewPool?.reloadAllConfigurations(for: tabManager.tabs)
     }
 
     private func loadUserscriptsFromStore() {
@@ -145,14 +185,14 @@ struct BrowserRootView: View {
     }
 
     private func loadPendingShareURL() {
-        guard let defaults = UserDefaults(suiteName: "group.com.safaribrowser.app") else { return }
-        if defaults.bool(forKey: "pendingNewTab") {
-            defaults.removeObject(forKey: "pendingNewTab")
+        let defaults = AppGroupStorage.defaults
+        if defaults.bool(forKey: AppGroupStorage.Key.pendingNewTab) {
+            defaults.removeObject(forKey: AppGroupStorage.Key.pendingNewTab)
             tabManager.addTab()
         }
-        guard let urlString = defaults.string(forKey: "pendingShareURL"),
+        guard let urlString = defaults.string(forKey: AppGroupStorage.Key.pendingShareURL),
               let url = URL(string: urlString) else { return }
-        defaults.removeObject(forKey: "pendingShareURL")
+        defaults.removeObject(forKey: AppGroupStorage.Key.pendingShareURL)
         navigateTo(url)
     }
 }

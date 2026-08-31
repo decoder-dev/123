@@ -137,6 +137,12 @@ private struct BrowserGlassModifier: ViewModifier {
         } else {
             content
                 .background(fallbackMaterial, in: RoundedRectangle(cornerRadius: radius, style: .continuous))
+                .background {
+                    if let tint {
+                        RoundedRectangle(cornerRadius: radius, style: .continuous)
+                            .fill(tint)
+                    }
+                }
                 .overlay { chromeStroke }
         }
     }
@@ -281,5 +287,12 @@ struct BrowserEmptyState: View {
         }
         .padding(BrowserSpacing.xl + 8)
         .browserGlass(radius: BrowserRadius.card)
+    }
+}
+
+extension View {
+    func browserSheet() -> some View {
+        presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
     }
 }

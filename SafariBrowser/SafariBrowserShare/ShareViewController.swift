@@ -63,8 +63,8 @@ final class ShareViewController: UIViewController {
     }
 
     private func saveAndOpen(_ url: URL) {
-        let defaults = UserDefaults(suiteName: "group.com.safaribrowser.app")
-        defaults?.set(url.absoluteString, forKey: "pendingShareURL")
+        let defaults = UserDefaults(suiteName: "group.com.safaribrowser.app") ?? .standard
+        defaults.set(url.absoluteString, forKey: "pendingShareURL")
         guard let encoded = url.absoluteString.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
               let openURL = URL(string: "safaribrowser://open?url=\(encoded)") else {
             finish()

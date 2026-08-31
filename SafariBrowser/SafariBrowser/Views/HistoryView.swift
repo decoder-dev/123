@@ -9,24 +9,36 @@ struct HistoryView: View {
 
     var body: some View {
         NavigationStack {
-            List {
-                ForEach(entries, id: \.id) { entry in
-                    Button {
-                        if let url = entry.url {
-                            onSelect(url)
-                            dismiss()
-                        }
-                    } label: {
-                        VStack(alignment: .leading) {
-                            Text(entry.title)
-                                .font(.body)
-                            HStack {
-                                Text(entry.urlString)
-                                Spacer()
-                                Text(entry.visitedAt, style: .relative)
+            Group {
+                if entries.isEmpty {
+                    BrowserEmptyState(
+                        icon: "clock",
+                        title: "No History",
+                        message: "Pages you visit will appear here."
+                    )
+                    .padding()
+                } else {
+                    List {
+                        ForEach(entries, id: \.id) { entry in
+                            Button {
+                                if let url = entry.url {
+                                    onSelect(url)
+                                    dismiss()
+                                }
+                            } label: {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(entry.title)
+                                        .font(.body.weight(.medium))
+                                        .foregroundStyle(BrowserTheme.ink)
+                                    HStack {
+                                        Text(entry.urlString)
+                                        Spacer()
+                                        Text(entry.visitedAt, style: .relative)
+                                    }
+                                    .font(.caption)
+                                    .foregroundStyle(BrowserTheme.muted)
+                                }
                             }
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
                         }
                     }
                 }
@@ -41,6 +53,7 @@ struct HistoryView: View {
                         HistoryStore(modelContext: modelContext).clearAll()
                         reload()
                     }
+                    .disabled(entries.isEmpty)
                 }
             }
             .onAppear { reload() }

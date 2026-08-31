@@ -84,9 +84,9 @@ struct TabPagerView: View {
     }
 
     private func updateWidgetData(title: String, url: URL) {
-        let defaults = UserDefaults(suiteName: "group.com.safaribrowser.app")
-        defaults?.set(title.isEmpty ? url.host ?? "Page" : title, forKey: "widget.lastTitle")
-        defaults?.set(url.absoluteString, forKey: "widget.lastURL")
+        let defaults = AppGroupStorage.defaults
+        defaults.set(title.isEmpty ? url.host ?? "Page" : title, forKey: AppGroupStorage.Key.widgetLastTitle)
+        defaults.set(url.absoluteString, forKey: AppGroupStorage.Key.widgetLastURL)
         WidgetCenter.shared.reloadAllTimelines()
     }
 }

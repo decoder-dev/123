@@ -10,24 +10,37 @@ struct BookmarksView: View {
 
     var body: some View {
         NavigationStack {
-            List {
-                ForEach(bookmarks, id: \.id) { bookmark in
-                    Button {
-                        if let url = bookmark.url {
-                            onSelect(url)
-                            dismiss()
+            Group {
+                if bookmarks.isEmpty {
+                    BrowserEmptyState(
+                        icon: "book.closed",
+                        title: "No Bookmarks",
+                        message: "Save pages with the bookmark action in the toolbar menu."
+                    )
+                    .padding()
+                } else {
+                    List {
+                        ForEach(bookmarks, id: \.id) { bookmark in
+                            Button {
+                                if let url = bookmark.url {
+                                    onSelect(url)
+                                    dismiss()
+                                }
+                            } label: {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(bookmark.title)
+                                        .font(.body.weight(.medium))
+                                        .foregroundStyle(BrowserTheme.ink)
+                                    Text(bookmark.urlString)
+                                        .font(.caption)
+                                        .foregroundStyle(BrowserTheme.muted)
+                                        .lineLimit(1)
+                                }
+                            }
                         }
-                    } label: {
-                        VStack(alignment: .leading) {
-                            Text(bookmark.title)
-                                .font(.body)
-                            Text(bookmark.urlString)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
+                        .onDelete(perform: deleteBookmarks)
                     }
                 }
-                .onDelete(perform: deleteBookmarks)
             }
             .navigationTitle("Bookmarks")
             .toolbar {

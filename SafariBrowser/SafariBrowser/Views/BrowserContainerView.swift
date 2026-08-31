@@ -21,6 +21,7 @@ struct BrowserContainerView: View {
 
     @State private var addressText = ""
     @State private var isEditingAddress = false
+    @State private var showReaderUnavailable = false
 
     private var isPrivate: Bool {
         tabManager.selectedTab?.isPrivate == true || tabManager.isPrivateMode
@@ -49,7 +50,9 @@ struct BrowserContainerView: View {
 
             if let error = tabManager.selectedTab?.lastErrorMessage {
                 VStack {
-                    ErrorBanner(message: error)
+                    ErrorBanner(message: error) {
+                        tabManager.selectedTab?.lastErrorMessage = nil
+                    }
                     Spacer()
                 }
                 .padding(.top, BrowserSpacing.sm)
@@ -69,6 +72,11 @@ struct BrowserContainerView: View {
                 article: article,
                 isPrivate: isPrivate
             )
+        }
+        .alert("Reader Unavailable", isPresented: $showReaderUnavailable) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("This page doesn't support Reader mode.")
         }
     }
 
@@ -132,7 +140,10 @@ struct BrowserContainerView: View {
         webView.evaluateJavaScript(ReaderModeService.extractionScript) { result, _ in
             Task { @MainActor in
                 guard let json = result as? String,
-                      let article = ReaderModeService.parse(json: json, sourceURL: tab.url) else { return }
+                      let article = ReaderModeService.parse(json: json, sourceURL: tab.url) else {
+                    showReaderUnavailable = true
+                    return
+                }
                 readerArticle = article
             }
         }
@@ -141,15 +152,25 @@ struct BrowserContainerView: View {
 
 private struct ErrorBanner: View {
     let message: String
+    var onDismiss: () -> Void
 
     var body: some View {
-        Text(message)
+        Button(action: onDismiss) {
+            HStack(spacing: BrowserSpacing.sm) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                Text(message)
+                    .multilineTextAlignment(.leading)
+                Spacer(minLength: 0)
+                Image(systemName: "xmark")
+                    .font(.caption.weight(.bold))
+            }
             .font(.caption.weight(.medium))
             .foregroundStyle(.white)
             .padding(.horizontal, BrowserSpacing.lg)
             .padding(.vertical, BrowserSpacing.sm)
             .background(BrowserTheme.destructive.opacity(0.92), in: Capsule())
-            .shadow(color: BrowserTheme.destructive.opacity(0.25), radius: 8, y: 3)
-            .padding(.horizontal, BrowserSpacing.lg)
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, BrowserSpacing.lg)
     }
 }

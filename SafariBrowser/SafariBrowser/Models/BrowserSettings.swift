@@ -78,8 +78,13 @@ final class HistoryStore {
     }
 
     func record(title: String, url: URL) {
-        let entry = HistoryEntry(title: title, url: url)
-        modelContext.insert(entry)
+        let descriptor = FetchDescriptor<HistoryEntry>()
+        if let existing = try? modelContext.fetch(descriptor).first(where: { $0.urlString == url.absoluteString }) {
+            existing.title = title
+            existing.visitedAt = Date()
+        } else {
+            modelContext.insert(HistoryEntry(title: title, url: url))
+        }
         try? modelContext.save()
     }
 

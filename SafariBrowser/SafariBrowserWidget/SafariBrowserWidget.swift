@@ -22,9 +22,9 @@ struct SafariBrowserWidgetProvider: TimelineProvider {
     }
 
     private func loadEntry() -> BookmarkEntry {
-        let defaults = UserDefaults(suiteName: "group.com.safaribrowser.app")
-        let title = defaults?.string(forKey: "widget.lastTitle") ?? "SafariBrowser"
-        let url = defaults?.string(forKey: "widget.lastURL") ?? "https://apple.com"
+        let defaults = UserDefaults(suiteName: "group.com.safaribrowser.app") ?? .standard
+        let title = defaults.string(forKey: "widget.lastTitle") ?? "SafariBrowser"
+        let url = defaults.string(forKey: "widget.lastURL") ?? "https://apple.com"
         return BookmarkEntry(date: .now, title: title, urlString: url)
     }
 }

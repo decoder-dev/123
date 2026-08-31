@@ -234,9 +234,28 @@ struct BrowserWebView: UIViewRepresentable {
             let host = origin.host
             let permType: SitePermissionType = type == .camera ? .camera : .microphone
             switch SitePermissionStore.shared.decision(for: host, type: permType) {
-            case .allow: decisionHandler(.grant)
-            case .deny: decisionHandler(.deny)
-            case .ask: decisionHandler(.prompt)
+            case .allow:
+                decisionHandler(.grant)
+            case .deny:
+                decisionHandler(.deny)
+            case .ask:
+                let label = permType == .camera ? "camera" : "microphone"
+                JSPanelPresenter.confirm(message: "Allow \(host) to use your \(label)?") { granted in
+                    SitePermissionStore.shared.setDecision(granted ? .allow : .deny, host: host, type: permType)
+                    decisionHandler(granted ? .grant : .deny)
+                }
+            }
+        }
+
+        @available(iOS 18.4, *)
+        func webView(
+            _ webView: WKWebView,
+            runOpenPanelWith parameters: WKOpenPanelParameters,
+            initiatedByFrame frame: WKFrameInfo,
+            completionHandler: @escaping ([URL]?) -> Void
+        ) {
+            FilePickerPresenter.shared.pick(allowsMultiple: parameters.allowsMultipleSelection) { urls in
+                completionHandler(urls.isEmpty ? nil : urls)
             }
         }
     }

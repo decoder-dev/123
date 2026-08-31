@@ -26,33 +26,38 @@ struct BrowserSplitView: View {
                     tabManager.selectTab(tab)
                 }}
             )) {
-                Section("Tabs") {
+                Section {
                     ForEach(tabManager.tabs) { tab in
-                        HStack {
-                            if let data = tab.faviconData, let img = UIImage(data: data) {
-                                Image(uiImage: img).resizable().frame(width: 16, height: 16)
-                            } else {
-                                Image(systemName: "globe")
+                        sidebarRow(for: tab)
+                            .tag(tab.id)
+                            .swipeActions {
+                                Button(role: .destructive) {
+                                    tabManager.closeTab(tab, webViewPool: webViewPool)
+                                } label: {
+                                    Label("Close", systemImage: "xmark")
+                                }
                             }
-                            Text(tab.displayTitle).lineLimit(1)
-                        }
-                        .tag(tab.id)
-                        .swipeActions {
-                            Button(role: .destructive) {
-                                tabManager.closeTab(tab, webViewPool: webViewPool)
-                            } label: {
-                                Label("Close", systemImage: "xmark")
-                            }
+                    }
+                } header: {
+                    HStack {
+                        Text("Tabs")
+                        Spacer()
+                        if tabManager.isPrivateMode {
+                            BrowserStatusPill(title: "Private", icon: "hand.raised.fill")
                         }
                     }
                 }
             }
             .navigationTitle("SafariBrowser")
             .toolbar {
-                ToolbarItem {
-                    Button { tabManager.addTab() } label: {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        tabManager.addTab()
+                        HapticService.newTab()
+                    } label: {
                         Image(systemName: "plus")
                     }
+                    .accessibilityLabel("New tab")
                 }
             }
         } detail: {
@@ -70,6 +75,45 @@ struct BrowserSplitView: View {
                 showSitePermissions: $showSitePermissions,
                 usePager: false
             )
+        }
+    }
+
+    @ViewBuilder
+    private func sidebarRow(for tab: BrowserTab) -> some View {
+        HStack(spacing: BrowserSpacing.sm) {
+            if tab.isPrivate {
+                Image(systemName: "hand.raised.fill")
+                    .font(.caption)
+                    .foregroundStyle(BrowserTheme.privateAccent)
+                    .frame(width: 18, height: 18)
+            } else if let data = tab.faviconData, let img = UIImage(data: data) {
+                Image(uiImage: img)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 18, height: 18)
+                    .clipShape(RoundedRectangle(cornerRadius: 3))
+            } else {
+                Image(systemName: "globe")
+                    .font(.caption)
+                    .foregroundStyle(BrowserTheme.muted)
+                    .frame(width: 18, height: 18)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(tab.displayTitle)
+                    .font(.subheadline.weight(.medium))
+                    .lineLimit(1)
+                if !tab.displayURL.isEmpty {
+                    Text(tab.displayURL)
+                        .font(.caption2)
+                        .foregroundStyle(BrowserTheme.muted)
+                        .lineLimit(1)
+                }
+            }
+            if tab.isLoading {
+                Spacer(minLength: 4)
+                ProgressView()
+                    .controlSize(.small)
+            }
         }
     }
 }

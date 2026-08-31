@@ -12,6 +12,31 @@ enum BrowsingDataClearer {
         tabManager: TabManager,
         modelContext: ModelContext
     ) {
+        clearWebKitStores()
+        HistoryStore(modelContext: modelContext).clearAll()
+        downloadManager.clearAll()
+        sessionStore.clear()
+        clearSharedData()
+        tabManager.resetToSingleTab()
+        WidgetCenter.shared.reloadAllTimelines()
+    }
+
+    /// Clears caches/cookies and shared keys when leaving the app (Settings → Clear Web Cache on Exit).
+    static func clearOnExit() {
+        clearWebKitStores()
+        clearSharedData()
+    }
+
+    static func clearSharedData() {
+        AppGroupStorage.clearSharedKeys()
+    }
+
+    static func clearWidgetData() {
+        clearSharedData()
+        WidgetCenter.shared.reloadAllTimelines()
+    }
+
+    private static func clearWebKitStores() {
         let types = WKWebsiteDataStore.allWebsiteDataTypes()
         WKWebsiteDataStore.default().fetchDataRecords(ofTypes: types) { records in
             WKWebsiteDataStore.default().removeData(ofTypes: types, for: records) {}
@@ -19,26 +44,10 @@ enum BrowsingDataClearer {
         WKWebsiteDataStore.nonPersistent().fetchDataRecords(ofTypes: types) { records in
             WKWebsiteDataStore.nonPersistent().removeData(ofTypes: types, for: records) {}
         }
-
-        HistoryStore(modelContext: modelContext).clearAll()
-        downloadManager.clearAll()
-        sessionStore.clear()
-        clearAppGroupData()
-
-        tabManager.resetToSingleTab()
-        WidgetCenter.shared.reloadAllTimelines()
     }
+}
 
-    static func clearAppGroupData() {
-        guard let defaults = UserDefaults(suiteName: "group.com.safaribrowser.app") else { return }
-        defaults.removeObject(forKey: "widget.lastTitle")
-        defaults.removeObject(forKey: "widget.lastURL")
-        defaults.removeObject(forKey: "pendingShareURL")
-        defaults.removeObject(forKey: "pendingNewTab")
-    }
-
-    static func clearWidgetData() {
-        clearAppGroupData()
-        WidgetCenter.shared.reloadAllTimelines()
-    }
+extension Notification.Name {
+    static let userscriptsDidChange = Notification.Name("SafariBrowser.userscriptsDidChange")
+    static let reloadWebViewConfigurations = Notification.Name("SafariBrowser.reloadWebViewConfigurations")
 }

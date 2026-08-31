@@ -22,8 +22,6 @@ struct SafariBrowserApp: App {
                 .environment(chromeState)
                 .environment(downloadManager)
                 .task {
-                    try? await ContentBlockerService.shared.compileRules()
-                    ContentBlockerService.shared.setEnabled(settings.blockTrackers)
                     sessionStore.restore(into: tabManager)
                 }
                 .onChange(of: tabManager.tabs.count) { _, _ in
@@ -34,25 +32,5 @@ struct SafariBrowserApp: App {
                 }
         }
         .modelContainer(for: [Bookmark.self, HistoryEntry.self, StoredUserScript.self])
-        .onChange(of: scenePhase) { _, phase in
-            if phase == .background {
-                sessionStore.save(tabManager)
-                if settings.clearDataOnExit {
-                    clearPrivateData()
-                }
-            }
-        }
-    }
-
-    private func clearPrivateData() {
-        // modelContext not available here; WebKit + app group only on background exit
-        let types = WKWebsiteDataStore.allWebsiteDataTypes()
-        WKWebsiteDataStore.default().fetchDataRecords(ofTypes: types) { records in
-            WKWebsiteDataStore.default().removeData(ofTypes: types, for: records) {}
-        }
-        WKWebsiteDataStore.nonPersistent().fetchDataRecords(ofTypes: types) { records in
-            WKWebsiteDataStore.nonPersistent().removeData(ofTypes: types, for: records) {}
-        }
-        BrowsingDataClearer.clearAppGroupData()
     }
 }

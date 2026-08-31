@@ -25,6 +25,18 @@ public enum SitePermissionType: String, Codable, CaseIterable, Sendable, Identif
         case .notifications: "bell.fill"
         }
     }
+
+    /// Types with WebKit delegate wiring in the app target.
+    public var isImplemented: Bool {
+        switch self {
+        case .camera, .microphone: true
+        case .location, .notifications: false
+        }
+    }
+
+    public static var implementedCases: [SitePermissionType] {
+        allCases.filter(\.isImplemented)
+    }
 }
 
 public enum SitePermissionDecision: String, Codable, Sendable {
@@ -68,7 +80,9 @@ public final class SitePermissionStore {
     }
 
     public func allPermissions() -> [SitePermission] {
-        permissions.sorted { $0.host < $1.host }
+        permissions
+            .filter { $0.type.isImplemented }
+            .sorted { $0.host < $1.host }
     }
 
     public func remove(_ permission: SitePermission) {

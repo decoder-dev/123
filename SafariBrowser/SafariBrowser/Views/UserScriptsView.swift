@@ -7,39 +7,48 @@ struct UserScriptsView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
 
-    @State private var showEditor = false
     @State private var editingScript: Userscript?
 
     var body: some View {
         NavigationStack {
-            List {
-                ForEach(userscriptManager.scripts) { script in
-                    HStack {
-                        VStack(alignment: .leading) {
-                            Text(script.name)
-                                .font(.body.weight(.medium))
-                            Text(script.matchPatterns.joined(separator: ", "))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+            Group {
+                if userscriptManager.scripts.isEmpty {
+                    BrowserEmptyState(
+                        icon: "chevron.left.forwardslash.chevron.right",
+                        title: "No Userscripts",
+                        message: "Add scripts to customize pages you visit."
+                    )
+                    .padding()
+                } else {
+                    List {
+                        ForEach(userscriptManager.scripts) { script in
+                            HStack {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(script.name)
+                                        .font(.body.weight(.medium))
+                                    Text(script.matchPatterns.joined(separator: ", "))
+                                        .font(.caption)
+                                        .foregroundStyle(BrowserTheme.muted)
+                                        .lineLimit(1)
+                                }
+                                Spacer()
+                                Toggle("", isOn: binding(for: script))
+                                    .labelsHidden()
+                            }
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                editingScript = script
+                            }
                         }
-                        Spacer()
-                        Toggle("", isOn: binding(for: script))
-                            .labelsHidden()
-                    }
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        editingScript = script
-                        showEditor = true
+                        .onDelete(perform: deleteScripts)
                     }
                 }
-                .onDelete(perform: deleteScripts)
             }
             .navigationTitle("Userscripts")
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     Button {
                         editingScript = Userscript(name: "New Script", source: "// Your code here\n")
-                        showEditor = true
                     } label: {
                         Image(systemName: "plus")
                     }
@@ -48,11 +57,9 @@ struct UserScriptsView: View {
                     Button("Done") { dismiss() }
                 }
             }
-            .sheet(isPresented: $showEditor) {
-                if let script = editingScript {
-                    UserScriptEditorView(script: script) { saved in
-                        saveScript(saved)
-                    }
+            .sheet(item: $editingScript) { script in
+                UserScriptEditorView(script: script) { saved in
+                    saveScript(saved)
                 }
             }
         }
@@ -93,6 +100,7 @@ struct UserScriptsView: View {
             modelContext.insert(StoredUserScript(from: script))
         }
         try? modelContext.save()
+        NotificationCenter.default.post(name: .userscriptsDidChange, object: nil)
     }
 }
 
@@ -118,7 +126,7 @@ struct UserScriptEditorView: View {
                 Section("Source") {
                     TextEditor(text: $script.source)
                         .font(.system(.body, design: .monospaced))
-                        .frame(minHeight: 200)
+                        .frame(minHeight: 220)
                 }
             }
             .navigationTitle("Edit Script")
@@ -134,5 +142,6 @@ struct UserScriptEditorView: View {
                 }
             }
         }
+        .presentationDetents([.large])
     }
 }
