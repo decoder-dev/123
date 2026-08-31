@@ -134,24 +134,10 @@ private struct BrowserGlassModifier: ViewModifier {
                     in: RoundedRectangle(cornerRadius: radius, style: .continuous)
                 )
                 .overlay { chromeStroke }
-        } else if #available(iOS 26.0, *) {
-            glass26(content)
-                .overlay { chromeStroke.opacity(0.55) }
         } else {
             content
                 .background(fallbackMaterial, in: RoundedRectangle(cornerRadius: radius, style: .continuous))
                 .overlay { chromeStroke }
-        }
-    }
-
-    @available(iOS 26.0, *)
-    @ViewBuilder
-    private func glass26(_ content: Content) -> some View {
-        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
-        if let tint {
-            content.glassEffect(.regular.tint(tint).interactive(style == .interactive), in: shape)
-        } else {
-            content.glassEffect(.regular.interactive(style == .interactive), in: shape)
         }
     }
 
